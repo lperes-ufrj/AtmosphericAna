@@ -35,5 +35,11 @@ After a change to compile again you must
 
 And just AtmosphericAna codes are reinstalled.
 
+================================================
+
+The samples can be found in 
+
+https://wiki.dunescience.org/wiki/High-E_and_Non-accelerator_Physics
+
 
 
