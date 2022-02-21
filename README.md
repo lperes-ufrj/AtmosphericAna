@@ -15,19 +15,23 @@ Instructions to run:
 You should install a local version of dunetpc.
 
 Then, add this repository in the source, a path like
+
 /dune/app/users/$USER/$WORK_DIRECTORY/srcs/dunetpc/dune/AtmosphericAna
+
 You should also include the new directory in the CMakeLists file.
 
 Install this code just once with
 
-cd $MRB_BUILDDIR 
-mrb i
+>>> cd $MRB_BUILDDIR 
+
+>>> mrb i
 
 Now, you able to run and make changes.
 After a change to compile again you must
 
-cd $MRB_BUILDDIR/dunetpc/dune/AtmosphericAna
-make install
+>>> cd $MRB_BUILDDIR/dunetpc/dune/AtmosphericAna
+
+>>> make install
 
 And just AtmosphericAna codes are reinstalled.
 
