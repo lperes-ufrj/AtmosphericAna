@@ -1,7 +1,9 @@
+
+
 ////////////////////////////////////////////////////////////////////////
 // Class:       Atmospheric
 // Plugin Type: analyzer (Unknown Unknown)
-// File:        Sensitivity_module.cc
+// File:        Atmospheric_module.cc
 //
 // Generated at Mon Jan 17 19:47:24 2022 by Leonardo Peres using cetskelgen
 // from  version .
@@ -28,8 +30,6 @@
 #include <fstream>
 #include <array>
 #include <iterator>
-
-
 
 // some ROOT includes
 #include "TInterpreter.h"
@@ -95,6 +95,9 @@
 #include "dune/AnaUtils/DUNEAnaTrackUtils.h"
 #include "dune/AnaUtils/DUNEAnaShowerUtils.h"
 
+#define OUT_DM_CODE 2000010000
+
+
 // Detector Limits =========================
 float fFidVolXmin = 0;
 float fFidVolXmax = 0;
@@ -103,12 +106,13 @@ float fFidVolYmax = 0;
 float fFidVolZmin = 0;
 float fFidVolZmax = 0;
 
-namespace atm
+
+namespace bdm
 {
-  class Atmospheric;
+  class Sensitivity;
 }
 
-class atm::Atmospheric : public art::EDAnalyzer
+class bdm::Sensitivity : public art::EDAnalyzer
 {
 public:
   typedef art::Handle<std::vector<recob::PFParticle>> PFParticleHandle;
@@ -118,15 +122,15 @@ public:
   typedef std::vector<art::Ptr<recob::Track>> TrackVector;
   typedef std::vector<art::Ptr<recob::Shower>> ShowerVector;
 
-  explicit Atmospheric(fhicl::ParameterSet const &p);
+  explicit Sensitivity(fhicl::ParameterSet const &p);
   // The compiler-generated destructor is fine for non-base
   // classes without bare pointers or other resource use.
 
   // Plugins should not be copied or assigned.
-  Atmospheric(Atmospheric const &) = delete;
-  Atmospheric(Atmospheric &&) = delete;
-  Atmospheric &operator=(Atmospheric const &) = delete;
-  Atmospheric &operator=(Atmospheric &&) = delete;
+  Sensitivity(Sensitivity const &) = delete;
+  Sensitivity(Sensitivity &&) = delete;
+  Sensitivity &operator=(Sensitivity const &) = delete;
+  Sensitivity &operator=(Sensitivity &&) = delete;
 
   // Required functions.
   void analyze(art::Event const &e) override;
@@ -151,7 +155,6 @@ private:
   int m_run;   ///<
   int m_event; ///<
   int fnGeantParticles;
-  std::vector<float> fDaughterTrackLengths;
   std::vector<std::vector<float>> fDaughterTrackdEdx_Plane0;
   std::vector<std::vector<float>> fDaughterTrackdEdx_Plane1;
   std::vector<std::vector<float>> fDaughterTrackdEdx_Plane2;
@@ -166,13 +169,12 @@ private:
   std::vector<int> fminChi2PDG;
 
 
-  double fCosAzimuthRecoRange;
-  double fCosAzimuthRecoCal;
+  double fCosThetaSunRecoRange;
+  double fCosThetaSunRecoCal;
+  double fMCCosAzimuthNu;
   int nTracks;
   int nTracksFlipped;
-
-  std::vector<float> fPIDA;
-
+  
   int fnPFParticleShowerDaughters;
   std::vector<int> fShowerID;
   std::vector<float> fShowerDirectionX;
@@ -186,20 +188,36 @@ private:
   std::vector<double> fShowerOpenAngle;
   std::vector<std::vector<double>> fShowerEnergy;
 
+  //Reco BDT Variables
+  double fCosThetaDetTotalMom;
+  double fCosPhiDetTotalMom;
+  double fTotalMomentumP;
+  int fnTracks;
+  int fnShowers;
+  int fnCalorimetryPoints;
+  std::vector<float> fPIDA;
+  std::vector<double> fTrackLength;
+  //std::vector<double> fThetaDetTrack;
+  //std::vector<double> fPhiDetTrack;
+  //std::vector<double> fTrackMomentum;
+  //std::vector<double> fTrackEnergy;
+  std::vector<double> fTrackSummedADC;
+  //std::vector<double> fShowerDepEnergyADC;
+  //std::vector<double> fShower5cmDepEnergy;
+  
+
   //BackTracking
   std::vector<int> fDaughterTrackTruePDG;
  
 
   //Truth information
-  int fnGeneratorParticles;
   std::vector<int> fCCNC;
   std::vector<double> fThetaNuLepton;
-  std::vector<double> fMCCosAzimuthNu;
+  std::vector<int> fMCPrimaryNuPDG;
   std::vector<std::vector<double>> fMCInitialPositionNu;
   std::vector<std::vector<double>> fMCNuMomentum;
-  std::vector<int> fMCPrimaryNuPDG;
-
-
+  std::vector<std::vector<double>> fSunDirectionFromTrueBDM;
+  std::vector<std::vector<double>> fPrimaryBDMVertex;
   std::vector<int> fMCTrackId;
   std::vector<int> fMCPdgCode;
   std::vector<int> fMCMother;
@@ -214,7 +232,7 @@ private:
   std::vector<double> fMCEndEnergy;
   std::vector<int> fMCStatusCode;
   std::vector<bool> fisMCinside;
-  double fCosAzimuthTrue;
+  double fCosThetaSunTrue;
 
   // Module labels and parameters
   std::string fGeneratorModuleLabel;
@@ -232,7 +250,7 @@ private:
   trkf::TrackMomentumCalculator trkm;
 };
 
-atm::Atmospheric::Atmospheric(fhicl::ParameterSet const &p)
+bdm::Sensitivity::Sensitivity(fhicl::ParameterSet const &p)
     : EDAnalyzer{p}, // More initializers here.
       fGeneratorModuleLabel(p.get<std::string>("GeneratorModuleLabel")),
       fGeantModuleLabel(p.get<std::string>("GeantModuleLabel")),
@@ -251,10 +269,19 @@ atm::Atmospheric::Atmospheric(fhicl::ParameterSet const &p)
   // Call appropriate consumes<>() for any products to be retrieved by this module.
 }
 
-void atm::Atmospheric::ResetCounters()
+void bdm::Sensitivity::ResetCounters()
 {
 
-  fDaughterTrackLengths.clear();
+  fCosThetaDetTotalMom = -2;
+  fCosPhiDetTotalMom = -2;
+  fnTracks = 0;
+  fnShowers = 0;
+  fnCalorimetryPoints = 0;
+  fTotalMomentumP = 0;
+  fTrackSummedADC.clear();
+
+  fCCNC.clear();
+  fTrackLength.clear();
   fDaughterTrackdEdx_Plane0.clear();
   fDaughterTrackdEdx_Plane1.clear();
   fDaughterTrackdEdx_Plane2.clear();
@@ -266,20 +293,19 @@ void atm::Atmospheric::ResetCounters()
   fDaughterKE_Plane2.clear();
   fminChi2PDG.clear();
   fminChi2value.clear();
+  fSunDirectionFromTrueBDM.clear();
+  fPrimaryBDMVertex.clear();
   fPIDA.clear();
-  fCosAzimuthRecoRange = 2;
-  fCosAzimuthRecoCal = 2;
+  fCosThetaSunRecoRange = 2;
+  fCosThetaSunRecoCal = 2;
   fDaughterTrackTruePDG.clear();
 
-
-  fnGeneratorParticles = 0;
-  fCCNC.clear();
+  fnGeantParticles = 0;
   fThetaNuLepton.clear();
-  fMCCosAzimuthNu.clear();
-  fMCInitialPositionNu.clear();
   fMCNuMomentum.clear();
   fMCPrimaryNuPDG.clear();
-  fnGeantParticles = 0;
+  fMCInitialPositionNu.clear();
+  fMCCosAzimuthNu = -2;
   fMCTrackId.clear();
   fMCPdgCode.clear();
   fMCMother.clear();
@@ -294,7 +320,7 @@ void atm::Atmospheric::ResetCounters()
   fMCEndEnergy.clear();
   fMCStatusCode.clear();
   fisMCinside.clear();
-  fCosAzimuthTrue = 2;
+  fCosThetaSunTrue = 2;
 
   fnPFParticleShowerDaughters = 0;
   fShowerID.clear();
@@ -310,7 +336,7 @@ void atm::Atmospheric::ResetCounters()
   fShowerEnergy.clear();
 }
 
-void atm::Atmospheric::analyze(art::Event const &evt)
+void bdm::Sensitivity::analyze(art::Event const &evt)
 {
   // pid::Chi2PIDAlg fChiAlg;
 
@@ -355,7 +381,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
   for (size_t i = 0; i < MCTruthObjs.size(); i++)
   {
     simb::MCTruth MCTruthObj = MCTruthObjs[i];
-    fnGeneratorParticles = MCTruthObj.NParticles();
+    fnGeantParticles = MCTruthObj.NParticles();
 
     const simb::MCNeutrino &MCNeutrino = MCTruthObj.GetNeutrino();
     fCCNC.push_back(MCNeutrino.CCNC());
@@ -367,9 +393,14 @@ void atm::Atmospheric::analyze(art::Event const &evt)
     std::vector<double> tmp_fMCInitialPositionNu = {nu.Vx(), nu.Vy(), nu.Vz()};
     fMCInitialPositionNu.push_back(tmp_fMCInitialPositionNu);
     
-    fMCCosAzimuthNu.push_back( y*nu.Momentum().Vect().Unit() );
+    fMCCosAzimuthNu =  y*nu.Momentum().Vect().Unit() ;
   
   }
+
+  std::cout << "Number of CC and/or NC interactions: " << fCCNC.size() << std::endl;
+  std::cout << "Nu Interaction (0=CC 1=NC): " << fCCNC[0] << std::endl;
+
+
 
 
   // Truth information (Save geant4 info)
@@ -380,38 +411,42 @@ void atm::Atmospheric::analyze(art::Event const &evt)
     auto const &MCParticleObjs = *MCParticleHandle;
 
     fnGeantParticles = MCParticleObjs.size();
-    for (size_t i = 0; i < MCParticleObjs.size(); i++)
-    {
-
-      const simb::MCParticle MCParticleObj = MCParticleObjs[i];
-      fMCTrackId.push_back(MCParticleObj.TrackId());
-      fMCPdgCode.push_back(MCParticleObj.PdgCode());
-      fMCMother.push_back(MCParticleObj.Mother());
-      fMCProcess.push_back(MCParticleObj.Process());
-      fMCEndProcess.push_back(MCParticleObj.EndProcess());
-      fMCNumberDaughters.push_back(MCParticleObj.NumberDaughters());
-      fMCPosition.push_back({MCParticleObj.Position().X(), MCParticleObj.Position().Y(), MCParticleObj.Position().Z()});
-      fMCEndPosition.push_back({MCParticleObj.EndPosition().X(), MCParticleObj.EndPosition().Y(), MCParticleObj.EndPosition().Z()});
-      fMCMomentum.push_back({MCParticleObj.Px(), MCParticleObj.Py(), MCParticleObj.Pz()});
-      fMCStartEnergy.push_back(MCParticleObj.E(0));
-      fMCEndMomentum.push_back({MCParticleObj.EndPx(), MCParticleObj.EndPy(), MCParticleObj.EndPz()});
-      fMCEndEnergy.push_back(MCParticleObj.EndE());
-      fMCStatusCode.push_back(MCParticleObj.StatusCode());
-      geo::Point_t EndMCPos(MCParticleObj.EndPosition().X(), MCParticleObj.EndPosition().Y(), MCParticleObj.EndPosition().Z());
-      bool isMCinside_tmp = insideFV(EndMCPos);
-      fisMCinside.push_back(isMCinside_tmp);
-
-      // True total momentum -> it has to be a visible particle,
-      //               it has to be stopped inside the detector,
-      //               it has to be a stable final state particle.
-
-      if (IsVisibleParticle(MCParticleObj.PdgCode(), MCParticleObj.Process()) && isMCinside_tmp && MCParticleObj.StatusCode() == 1)
+    if(( fCCNC[0] == 1) ){ // Only  to a true NC neutrino interaction
+      for (size_t i = 0; i < MCParticleObjs.size(); i++)
       {
-        TotalMomentumTrue += MCParticleObj.Momentum();
+      
+
+        const simb::MCParticle MCParticleObj = MCParticleObjs[i];
+        fMCTrackId.push_back(MCParticleObj.TrackId());
+        fMCPdgCode.push_back(MCParticleObj.PdgCode());
+        fMCMother.push_back(MCParticleObj.Mother());
+        fMCProcess.push_back(MCParticleObj.Process());
+        fMCEndProcess.push_back(MCParticleObj.EndProcess());
+        fMCNumberDaughters.push_back(MCParticleObj.NumberDaughters());
+        fMCPosition.push_back({MCParticleObj.Position().X(), MCParticleObj.Position().Y(), MCParticleObj.Position().Z()});
+        fMCEndPosition.push_back({MCParticleObj.EndPosition().X(), MCParticleObj.EndPosition().Y(), MCParticleObj.EndPosition().Z()});
+        fMCMomentum.push_back({MCParticleObj.Px(), MCParticleObj.Py(), MCParticleObj.Pz()});
+        fMCStartEnergy.push_back(MCParticleObj.E(0));
+        fMCEndMomentum.push_back({MCParticleObj.EndPx(), MCParticleObj.EndPy(), MCParticleObj.EndPz()});
+        fMCEndEnergy.push_back(MCParticleObj.EndE());
+        fMCStatusCode.push_back(MCParticleObj.StatusCode());
+        geo::Point_t EndMCPos(MCParticleObj.EndPosition().X(), MCParticleObj.EndPosition().Y(), MCParticleObj.EndPosition().Z());
+        bool isMCinside_tmp = insideFV(EndMCPos);
+        fisMCinside.push_back(isMCinside_tmp);
+
+        // True total momentum -> it has to be a visible particle,
+        //               it has to be stopped inside the detector,
+        //               it has to be a primary particle, 
+        //               it has to be a stable final state particle.
+
+        if (IsVisibleParticle(MCParticleObj.PdgCode(), MCParticleObj.Process()) && isMCinside_tmp && MCParticleObj.StatusCode() == 1)
+        {
+          TotalMomentumTrue += MCParticleObj.Momentum();
+        }
       }
     }
 
-    fCosAzimuthTrue = TotalMomentumTrue.Vect().Unit() * y;
+    fCosThetaSunTrue = TotalMomentumTrue.Vect().Unit() * DMMomentum.Vect().Unit();
   }
 
   TrackVector trackVector;
@@ -426,7 +461,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
 
   if (!pfParticleHandle.isValid())
   {
-    mf::LogDebug("Atmospheric") << "  Failed to find the PFParticles." << std::endl;
+    mf::LogDebug("Sensitivity") << "  Failed to find the PFParticles." << std::endl;
     return;
   }
 
@@ -441,238 +476,253 @@ void atm::Atmospheric::analyze(art::Event const &evt)
   const std::vector<art::Ptr<recob::PFParticle>> pfparticleVect = dune_ana::DUNEAnaEventUtils::GetPFParticles(evt, fPFParticleModuleLabel);
 
   // Block adapted from ConsolidatedPFParticleAnalysisTemplate should work fine!
-  for (size_t iPfp = 0; iPfp < pfparticleVect.size(); iPfp++)
-  {
-
-    // std::cout << "We have PFParticle objects! Yep" << std::endl;
-    if (pfparticleVect[iPfp]->IsPrimary())
-      continue;
-    // const int pdg(pParticle->PdgCode());
-    // std::cout << "We have Primary Particles! Yep" << std::endl;
-
-    const std::vector<art::Ptr<recob::Track>> &associatedTracks = pfPartToTrackAssoc.at(iPfp);
-
-    float minChi2value;
-    int minChi2PDG;
-
-    if (!associatedTracks.empty())
+  if(( fCCNC[0] == 1) ){ // Only  to a true NC neutrino interaction
+    for (size_t iPfp = 0; iPfp < pfparticleVect.size(); iPfp++)
     {
-      // std::cout << "We have Tracks! Yep" << std::endl;
-      for (const art::Ptr<recob::Track> &trk : associatedTracks)
+
+        if (fCCNC[0] == 0) continue; // Only  to a true NC neutrino interaction
+
+      // std::cout << "We have PFParticle objects! Yep" << std::endl;
+      if (pfparticleVect[iPfp]->IsPrimary())
+        continue;
+      // const int pdg(pParticle->PdgCode());
+      // std::cout << "We have Primary Particles! Yep" << std::endl;
+
+      const std::vector<art::Ptr<recob::Track>> &associatedTracks = pfPartToTrackAssoc.at(iPfp);
+
+      float minChi2value;
+      int minChi2PDG;
+
+      fnTracks+=associatedTracks.size();
+
+      if (!associatedTracks.empty())
       {
-        std::vector<art::Ptr<recob::Hit>> trackHits = TrackToHitsAssoc.at(trk.key());
-        if(!insideFV(trk->End())) continue;
-        int trkidtruth = TruthMatchUtils::TrueParticleIDFromTotalTrueEnergy(clockData, trackHits, true);
-        const simb::MCParticle *particle = pi_serv->TrackIdToParticle_P(trkidtruth);
-        
-        fDaughterTrackTruePDG.push_back(particle->PdgCode());
 
-        fDaughterTrackLengths.push_back(trk->Length());
-
-
-        std::vector<art::Ptr<anab::ParticleID>> trackPID = TrackToPIDAssoc.at(trk.key());
-        std::map<int,float> PDGtoChi2;
-
-        for (size_t i = 0; i < trackPID.size(); i++)
+        // std::cout << "We have Tracks! Yep" << std::endl;
+        for (const art::Ptr<recob::Track> &trk : associatedTracks)
         {
+          std::vector<art::Ptr<recob::Hit>> trackHits = TrackToHitsAssoc.at(trk.key());
+          if(!insideFV(trk->End())) continue;
+          int trkidtruth = TruthMatchUtils::TrueParticleIDFromTotalTrueEnergy(clockData, trackHits, true);
+          const simb::MCParticle *particle = pi_serv->TrackIdToParticle_P(trkidtruth);
+  
+          //fTrackSummedADC.push_back(trackHits.SummedADC());
 
-          std::vector<anab::sParticleIDAlgScores> AlgScoresVec = trackPID.at(i)->ParticleIDAlgScores();
-          
-          
-          minChi2value = 9999;
-          minChi2PDG = 9999;
 
-          // Loop through AlgScoresVec and find the variables we want
-          for (size_t i_algscore = 0; i_algscore < AlgScoresVec.size(); i_algscore++)
+          fDaughterTrackTruePDG.push_back(particle->PdgCode());
+
+          fTrackLength.push_back(trk->Length());
+
+
+          std::vector<art::Ptr<anab::ParticleID>> trackPID = TrackToPIDAssoc.at(trk.key());
+          std::map<int,float> PDGtoChi2;
+
+          for (size_t i = 0; i < trackPID.size(); i++)
           {
 
-            anab::sParticleIDAlgScores AlgScore = AlgScoresVec.at(i_algscore);
-            // if (AlgScore.fPlaneMask[2] != 1)  continue; //Only collection plane
+            std::vector<anab::sParticleIDAlgScores> AlgScoresVec = trackPID.at(i)->ParticleIDAlgScores();
 
-            if(AlgScore.fAlgName == "Chi2") {
-              //Sum Chi2 hyphotesis all planes 
-              if(AlgScore.fPlaneMask[2] != 1 ) continue; //Discart muon hypothesis
-              PDGtoChi2[AlgScore.fAssumedPdg] = AlgScore.fValue;
 
-              std::cout << "------Track No.: " << trk.key() << std::endl;
-              //std::cout << "AlgScore.fAlgName: " << AlgScore.fAlgName << std::endl;
-              //std::cout << "AlgScore.fVariableType: " << AlgScore.fVariableType << std::endl;
-              //std::cout << "AlgScore.fTrackDir: " << AlgScore.fTrackDir << std::endl;
-              std::cout << "AlgScore.fAssumedPdg: " << AlgScore.fAssumedPdg << std::endl;
-              //std::cout << "AlgScore.fNdf: " << AlgScore.fNdf << std::endl;
-              std::cout << "AlgScore.fValue: " << AlgScore.fValue << std::endl;
-              std::cout << "AlgScore.fPlaneMask: " << AlgScore.fPlaneMask[2] << std::endl;
-              
+            minChi2value = 9999;
+            minChi2PDG = 9999;
+
+            // Loop through AlgScoresVec and find the variables we want
+            for (size_t i_algscore = 0; i_algscore < AlgScoresVec.size(); i_algscore++)
+            {
+
+              anab::sParticleIDAlgScores AlgScore = AlgScoresVec.at(i_algscore);
+              // if (AlgScore.fPlaneMask[2] != 1)  continue; //Only collection plane
+
+              if(AlgScore.fAlgName == "Chi2") {
+                //Sum Chi2 hyphotesis all planes 
+                if(AlgScore.fAssumedPdg == 13 || AlgScore.fPlaneMask[2] != 1 ) continue; //Discart muon hypothesis
+                PDGtoChi2[AlgScore.fAssumedPdg] = AlgScore.fValue;
+
+                std::cout << "------Track No.: " << trk.key() << std::endl;
+                //std::cout << "AlgScore.fAlgName: " << AlgScore.fAlgName << std::endl;
+                //std::cout << "AlgScore.fVariableType: " << AlgScore.fVariableType << std::endl;
+                //std::cout << "AlgScore.fTrackDir: " << AlgScore.fTrackDir << std::endl;
+                std::cout << "AlgScore.fAssumedPdg: " << AlgScore.fAssumedPdg << std::endl;
+                //std::cout << "AlgScore.fNdf: " << AlgScore.fNdf << std::endl;
+                std::cout << "AlgScore.fValue: " << AlgScore.fValue << std::endl;
+                std::cout << "AlgScore.fPlaneMask: " << AlgScore.fPlaneMask[2] << std::endl;
+
+              }
+
             }
 
           }
-         
-        }
 
-        std::cout << "\nThe map PDGtoChi2 is : \n";
-        std::cout << "\tKEY\tELEMENT\n";
-        std::map<int, float>::iterator it;
-        for( it = PDGtoChi2.begin(); it != PDGtoChi2.end(); ++it){
-          std::cout << '\t' << it->first << '\t' << it->second << '\n';
-          if(it->second < minChi2value){
-            minChi2value = it->second;
-            minChi2PDG = it->first;
+          std::cout << "\nThe map PDGtoChi2 is : \n";
+          std::cout << "\tKEY\tELEMENT\n";
+          std::map<int, float>::iterator it;
+          for( it = PDGtoChi2.begin(); it != PDGtoChi2.end(); ++it){
+            std::cout << '\t' << it->first << '\t' << it->second << '\n';
+            if(it->second < minChi2value){
+              minChi2value = it->second;
+              minChi2PDG = it->first;
+            }
           }
-        }
-            std::cout << "min Ch2 hypothesis : " << minChi2PDG << " with " << minChi2value << ". \n";
-            fminChi2value.push_back(minChi2value);
-            fminChi2PDG.push_back(minChi2PDG);
+              std::cout << "min Ch2 hypothesis : " << minChi2PDG << " with " << minChi2value << ". \n";
+              fminChi2value.push_back(minChi2value);
+              fminChi2PDG.push_back(minChi2PDG);
 
-        // std::min(chi2_pion_backward, std::min(chi2_pion_forward, std::min(chi2_proton_backward, chi2_proton_forward)));
+          // std::min(chi2_pion_backward, std::min(chi2_pion_forward, std::min(chi2_proton_backward, chi2_proton_forward)));
 
-        const std::vector<art::Ptr<anab::Calorimetry>> associatedCalo = TrackToCaloAssoc.at(trk.key());
-        if (associatedCalo.empty())
-          continue;
-
-        bool InvertTrack = false;
-
-        TVector3 DaughterStartPoint(trk->Start().X(), trk->Start().Y(), trk->Start().Z());
-        TVector3 DaughterEndPoint(trk->End().X(), trk->End().Y(), trk->End().Z());
-
-        // Cheat Vertex, all track directions based on the true vertex
-        if (fCheatVertex)
-        {
-          // If the distance from the true primary vertex of the begining of the track is bigger
-          // than the distance between the true primary vertex of the end of the track --> Flip the track!
-          if ((DMInteracPosition.Vect() - DaughterStartPoint).Mag() > (DMInteracPosition.Vect() - DaughterEndPoint).Mag())
-            InvertTrack = true;
-        }
-
-        float KE = 0;
-
-        for (const art::Ptr<anab::Calorimetry> &cal : associatedCalo)
-        {
-
-          if (!cal->PlaneID().isValid)
+          const std::vector<art::Ptr<anab::Calorimetry>> associatedCalo = TrackToCaloAssoc.at(trk.key());
+          if (associatedCalo.empty())
             continue;
 
-          int planenum = cal->PlaneID().Plane;
+          bool InvertTrack = false;
 
-          // std::cout << "pid: " << pidout.ParticleIDAlgScores.at(0) << std::endl;
-          std::vector<float> temp_dEdx = cal->dEdx();
+          TVector3 DaughterStartPoint(trk->Start().X(), trk->Start().Y(), trk->Start().Z());
+          TVector3 DaughterEndPoint(trk->End().X(), trk->End().Y(), trk->End().Z());
 
-          if (temp_dEdx.size() == 0)
-            continue;
+          // Cheat Vertex, all track directions based on the true vertex
+          if (fCheatVertex)
+          {
+            // If the distance from the true primary vertex of the begining of the track is bigger
+            // than the distance between the true primary vertex of the end of the track --> Flip the track!
+            if ((DMInteracPosition.Vect() - DaughterStartPoint).Mag() > (DMInteracPosition.Vect() - DaughterEndPoint).Mag())
+              InvertTrack = true;
+          }
+
+          float KE = 0;
+
+          fnCalorimetryPoints += associatedCalo.size();
+
+          for (const art::Ptr<anab::Calorimetry> &cal : associatedCalo)
+          {
+
+            if (!cal->PlaneID().isValid)
+              continue;
+
+            int planenum = cal->PlaneID().Plane;
+
+            // std::cout << "pid: " << pidout.ParticleIDAlgScores.at(0) << std::endl;
+            std::vector<float> temp_dEdx = cal->dEdx();
+
+            if (temp_dEdx.size() == 0)
+              continue;
+
+            if (InvertTrack)
+            {
+              //std::cout << "temp_dEdx.at(0)= " << temp_dEdx.at(0) << std::endl;
+
+              std::reverse(temp_dEdx.begin(), temp_dEdx.end());
+
+              //std::cout << "temp_dEdx.at(final)= " << temp_dEdx.at(temp_dEdx.size() - 1) << std::endl;
+            }
+            float val = 0;
+
+            if (cal->ResidualRange().size() == 0)
+              continue;
+
+            for (size_t i_r = 0; i_r < cal->ResidualRange().size(); i_r++)
+            {
+
+              if ((i_r == 0 || i_r == cal->ResidualRange().size() - 1) && cal->ResidualRange().at(i_r)<30)
+                continue;
+              // if(cal->ResidualRange().at(i_r)>60) continue;
+              val += temp_dEdx.at(i_r) * std::pow(cal->ResidualRange().at(i_r), 0.42);
+            }
+            if (val / (cal->ResidualRange().size() - 2) > 60)
+              continue;
+            fPIDA.push_back(val / (cal->ResidualRange().size() - 2));
+
+
+            if (planenum == 0)
+            {
+
+              fDaughterTrackdEdx_Plane0.push_back(temp_dEdx);
+              fDaughterTrackResidualRange_Plane0.push_back(cal->ResidualRange());
+              fDaughterKE_Plane0.push_back(cal->KineticEnergy());
+            }
+
+            if (planenum == 1)
+            {
+              fDaughterTrackdEdx_Plane1.push_back(temp_dEdx);
+              fDaughterTrackResidualRange_Plane1.push_back(cal->ResidualRange());
+              fDaughterKE_Plane1.push_back(cal->KineticEnergy());
+            }
+
+            if (planenum == 2)
+            {
+              fDaughterTrackdEdx_Plane2.push_back(temp_dEdx);
+              fDaughterTrackResidualRange_Plane2.push_back(cal->ResidualRange());
+              fDaughterKE_Plane2.push_back(cal->KineticEnergy());
+              KE = cal->KineticEnergy();
+            }
+
+            temp_dEdx.clear();
+          } // Calo
+
+          TVector3 TrackDirection(trk->StartDirection().X(), trk->StartDirection().Y(), trk->StartDirection().Z());
 
           if (InvertTrack)
           {
-            //std::cout << "temp_dEdx.at(0)= " << temp_dEdx.at(0) << std::endl;
-
-            std::reverse(temp_dEdx.begin(), temp_dEdx.end());
-
-            //std::cout << "temp_dEdx.at(final)= " << temp_dEdx.at(temp_dEdx.size() - 1) << std::endl;
-          }
-          float val = 0;
-
-          if (cal->ResidualRange().size() == 0)
-            continue;
-
-          for (size_t i_r = 0; i_r < cal->ResidualRange().size(); i_r++)
-          {
-
-            if ((i_r == 0 || i_r == cal->ResidualRange().size() - 1) && cal->ResidualRange().at(i_r)<30)
-              continue;
-            // if(cal->ResidualRange().at(i_r)>60) continue;
-            val += temp_dEdx.at(i_r) * std::pow(cal->ResidualRange().at(i_r), 0.42);
-          }
-          if (val / (cal->ResidualRange().size() - 2) > 60)
-            continue;
-          fPIDA.push_back(val / (cal->ResidualRange().size() - 2));
-
-
-          if (planenum == 0)
-          {
-
-            fDaughterTrackdEdx_Plane0.push_back(temp_dEdx);
-            fDaughterTrackResidualRange_Plane0.push_back(cal->ResidualRange());
-            fDaughterKE_Plane0.push_back(cal->KineticEnergy());
+            TrackDirection = -TrackDirection;
           }
 
-          if (planenum == 1)
-          {
-            fDaughterTrackdEdx_Plane1.push_back(temp_dEdx);
-            fDaughterTrackResidualRange_Plane1.push_back(cal->ResidualRange());
-            fDaughterKE_Plane1.push_back(cal->KineticEnergy());
-          }
+          TotalMomentumRecoRange += trkm.GetTrackMomentum(trk->Length(), 2212) * TrackDirection;
+          double Pcal = sqrt(KE * KE - PDGtoMass[minChi2PDG] * PDGtoMass[minChi2PDG]);
+          TotalMomentumRecoCal += Pcal * TrackDirection;
 
-          if (planenum == 2)
-          {
-            fDaughterTrackdEdx_Plane2.push_back(temp_dEdx);
-            fDaughterTrackResidualRange_Plane2.push_back(cal->ResidualRange());
-            fDaughterKE_Plane2.push_back(cal->KineticEnergy());
-            KE = cal->KineticEnergy();
-          }
+        } // Tracks- loop
+      }   // if there is a track
 
-          temp_dEdx.clear();
-        } // Calo
-
-        TVector3 TrackDirection(trk->StartDirection().X(), trk->StartDirection().Y(), trk->StartDirection().Z());
-
-        if (InvertTrack)
-        {
-          TrackDirection = -TrackDirection;
-        }
-
-        TotalMomentumRecoRange += trkm.GetTrackMomentum(trk->Length(), 2212) * TrackDirection;
-        double Pcal = sqrt(KE * KE - PDGtoMass[minChi2PDG] * PDGtoMass[minChi2PDG]);
-        TotalMomentumRecoCal += Pcal * TrackDirection;
-
-      } // Tracks- loop
-    }   // if there is a track
-
-    if (fShowerRecoSave)
-    {
-      // SHOWERS RECO INFO ====================================================================
-      const std::vector<art::Ptr<recob::Shower>> &associatedShowers = pfPartToShowerAssoc.at(iPfp);
-
-      if (!associatedShowers.empty())
+      if (fShowerRecoSave)
       {
+        // SHOWERS RECO INFO ====================================================================
+        const std::vector<art::Ptr<recob::Shower>> &associatedShowers = pfPartToShowerAssoc.at(iPfp);
+        fnShowers += associatedShowers.size();
 
-        for (const art::Ptr<recob::Shower> &Shower : associatedShowers)
+        if (!associatedShowers.empty())
         {
 
-          fnPFParticleShowerDaughters = associatedShowers.size();
 
-          fShowerID.push_back(Shower->ID());
-          fShowerDirectionX.push_back(Shower->Direction().X());
-          fShowerDirectionY.push_back(Shower->Direction().Y());
-          fShowerDirectionZ.push_back(Shower->Direction().Z());
-          fShowerDirectionErr.push_back({Shower->DirectionErr().X(), Shower->DirectionErr().Y(), Shower->DirectionErr().Z()});
-          fShowerShowerStart.push_back({Shower->ShowerStart().X(), Shower->ShowerStart().Y(), Shower->ShowerStart().Z()});
-          fShowerShowerStartErr.push_back({Shower->ShowerStartErr().X(), Shower->ShowerStartErr().Y(), Shower->ShowerStartErr().Z()});
-          fShowerbest_plane.push_back(Shower->best_plane());
-          fShowerEnergy.push_back(Shower->Energy());
-          fShowerLength.push_back(Shower->Length());
-          fShowerOpenAngle.push_back(Shower->OpenAngle());
+          for (const art::Ptr<recob::Shower> &Shower : associatedShowers)
+          {
+            fShowerID.push_back(Shower->ID());
+            fShowerDirectionX.push_back(Shower->Direction().X());
+            fShowerDirectionY.push_back(Shower->Direction().Y());
+            fShowerDirectionZ.push_back(Shower->Direction().Z());
+            fShowerDirectionErr.push_back({Shower->DirectionErr().X(), Shower->DirectionErr().Y(), Shower->DirectionErr().Z()});
+            fShowerShowerStart.push_back({Shower->ShowerStart().X(), Shower->ShowerStart().Y(), Shower->ShowerStart().Z()});
+            fShowerShowerStartErr.push_back({Shower->ShowerStartErr().X(), Shower->ShowerStartErr().Y(), Shower->ShowerStartErr().Z()});
+            fShowerbest_plane.push_back(Shower->best_plane());
+            fShowerEnergy.push_back(Shower->Energy());
+            fShowerLength.push_back(Shower->Length());
+            fShowerOpenAngle.push_back(Shower->OpenAngle());
+          }
         }
       }
     }
 
-  } // end - Block adapted from ConsolidatedPFParticleAnalysisTemplate should work fine!
+    } // end -- Only  to a true NC neutrino interaction
 
-  if (TotalMomentumRecoRange.Mag() > 0.0)
-  {
-    fCosAzimuthRecoRange = TotalMomentumRecoRange.Unit() * y;
-    fCosAzimuthRecoCal = TotalMomentumRecoCal.Unit() *y; 
-  }
+    //TVector3 z(0,0,1);
+    if (TotalMomentumRecoRange.Mag() > 0.0)
+    {
+    fTotalMomentumP = TotalMomentumRecoRange.Mag();
+    fCosThetaDetTotalMom = TotalMomentumRecoRange.Unit().CosTheta();
+    fCosPhiDetTotalMom = cos(TotalMomentumRecoRange.Unit().Phi());
+    fCosThetaSunRecoRange = TotalMomentumRecoRange.Unit() * DMMomentum.Vect().Unit();
+    fCosThetaSunRecoCal = TotalMomentumRecoCal.Unit() * DMMomentum.Vect().Unit(); 
+    }
 
   m_BDMTree->Fill();
 }
 
-void atm::Atmospheric::beginJob()
+void bdm::Sensitivity::beginJob()
 {
 
   art::ServiceHandle<art::TFileService const> tfs;
-  m_BDMTree = tfs->make<TTree>("Atm", "AtmosphericAnalysis");
+  m_BDMTree = tfs->make<TTree>("BoostedDM", "SensitivityAnalysis");
 
   m_BDMTree->Branch("run", &m_run, "run/I");
   m_BDMTree->Branch("event", &m_event, "event/I");
-  m_BDMTree->Branch("DaughterTrackLengths", &fDaughterTrackLengths);
+  m_BDMTree->Branch("TrackLength", &fTrackLength);
   m_BDMTree->Branch("DaughterTrackdEdx_Plane0", &fDaughterTrackdEdx_Plane0);
   m_BDMTree->Branch("DaughterTrackResidualRange_Plane0", &fDaughterTrackResidualRange_Plane0);
   m_BDMTree->Branch("DaughterKE_Plane0", &fDaughterKE_Plane0);
@@ -698,18 +748,26 @@ void atm::Atmospheric::beginJob()
   m_BDMTree->Branch("ShowerLength", &fShowerLength);
   m_BDMTree->Branch("ShowerOpenAngle", &fShowerOpenAngle);
 
-  m_BDMTree->Branch("CosAzimuthRecoRange",  &fCosAzimuthRecoRange);
-  m_BDMTree->Branch("CosAzimuthRecoCal",  &fCosAzimuthRecoCal);
+  m_BDMTree->Branch("CosThetaSunRecoRange",  &fCosThetaSunRecoRange);
+  m_BDMTree->Branch("CosThetaSunRecoCal",  &fCosThetaSunRecoCal);
+  m_BDMTree->Branch("CosThetaDetTotalMom", &fCosThetaDetTotalMom);  
+  m_BDMTree->Branch("CosPhiDetTotalMom", &fCosPhiDetTotalMom);
+  m_BDMTree->Branch("nTracks", &fnTracks);
+  m_BDMTree->Branch("nShowers", &fnShowers);
+  m_BDMTree->Branch("TotalMomentumP", &fTotalMomentumP);
+  m_BDMTree->Branch("nCalorimetryPoints", &fnCalorimetryPoints);
+  m_BDMTree->Branch("TrackSummedADC", &fTrackSummedADC);
   m_BDMTree->Branch("minChi2value", &fminChi2value);
   m_BDMTree->Branch("minChi2PDG", &fminChi2PDG);
 
-  m_BDMTree->Branch("nGeneratorParticles",&fnGeneratorParticles);
+ // m_BDMTree->Branch("SunDirectionFromTrueBDM", &fSunDirectionFromTrueBDM);
+ // m_BDMTree->Branch("TruePrimaryBDMVertex", &fPrimaryBDMVertex);
   m_BDMTree->Branch("CCNC", &fCCNC);
   m_BDMTree->Branch("ThetaNuLepton", &fThetaNuLepton);
-  m_BDMTree->Branch("MCCosAzimuthNu", &fMCCosAzimuthNu);
-  m_BDMTree->Branch("MCInitialPositionNu", &fMCInitialPositionNu);
-  m_BDMTree->Branch("MCNuMomentum", &fMCNuMomentum);
   m_BDMTree->Branch("MCPrimaryNuPDG", &fMCPrimaryNuPDG);
+  m_BDMTree->Branch("MCNuMomentum", &fMCNuMomentum);
+  m_BDMTree->Branch("MCInitialPositionNu", &fMCInitialPositionNu);
+  m_BDMTree->Branch("MCCosAzimuthNu", &fMCCosAzimuthNu);
   m_BDMTree->Branch("nGeantParticles", &fnGeantParticles);
   m_BDMTree->Branch("MCTrackId", &fMCTrackId);
   m_BDMTree->Branch("MCPdgCode", &fMCPdgCode);
@@ -725,15 +783,15 @@ void atm::Atmospheric::beginJob()
   m_BDMTree->Branch("MCEndEnergy", &fMCEndEnergy);
   m_BDMTree->Branch("MCStatusCode", &fMCStatusCode);
   m_BDMTree->Branch("isMCinside", &fisMCinside);
-  m_BDMTree->Branch("CosAzimuthTrue", &fCosAzimuthTrue);
+  m_BDMTree->Branch("CosThetaSunTrue", &fCosThetaSunTrue);
 }
 
-void atm::Atmospheric::endJob()
+void bdm::Sensitivity::endJob()
 {
   // Implementation of optional member function here.
 }
 
-bool atm::Atmospheric::IsVisibleParticle(int Pdg, std::string process)
+bool bdm::Sensitivity::IsVisibleParticle(int Pdg, std::string process)
 {
 
   bool condition = false;
@@ -746,7 +804,7 @@ bool atm::Atmospheric::IsVisibleParticle(int Pdg, std::string process)
   return condition;
 }
 
-void atm::Atmospheric::GeoLimits(art::ServiceHandle<geo::Geometry const> &geom, float fFidVolCutX, float fFidVolCutY, float fFidVolCutZ)
+void bdm::Sensitivity::GeoLimits(art::ServiceHandle<geo::Geometry const> &geom, float fFidVolCutX, float fFidVolCutY, float fFidVolCutZ)
 {
 
   // Define histogram boundaries (cm).
@@ -785,7 +843,7 @@ void atm::Atmospheric::GeoLimits(art::ServiceHandle<geo::Geometry const> &geom, 
   fFidVolZmax = maxz - fFidVolCutZ;
 } // GeoLimits()
 
-bool atm::Atmospheric::insideFV(geo::Point_t const &vertex)
+bool bdm::Sensitivity::insideFV(geo::Point_t const &vertex)
 {
 
   double const x = vertex.X();
@@ -798,4 +856,4 @@ bool atm::Atmospheric::insideFV(geo::Point_t const &vertex)
 
 } // insideFV()
 
-DEFINE_ART_MODULE(atm::Atmospheric)
+DEFINE_ART_MODULE(bdm::Sensitivity)
