@@ -26,7 +26,7 @@ Install this code just once with
 
 >>> mrb i
 
-Now, you able to run and make changes.
+Now, you are able to run and make changes.
 After a change to compile again you must
 
 >>> cd $MRB_BUILDDIR/dunetpc/dune/AtmosphericAna
