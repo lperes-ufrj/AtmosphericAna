@@ -78,7 +78,7 @@
 #include "larreco/RecoAlg/TrackMomentumCalculator.h"
 #include "larana/ParticleIdentification/Chi2PIDAlg.h"
 #include "larsim/Utils/TruthMatchUtils.h"
-#include "larsim/MCCheater/ParticleInventoryService.h"
+//#include "larsim/MCCheater/ParticleInventoryService.h"
 #include "lardata/DetectorInfoServices/DetectorClocksService.h"
 
 // Geometry includes
@@ -107,12 +107,12 @@ float fFidVolZmin = 0;
 float fFidVolZmax = 0;
 
 
-namespace bdm
+namespace atm
 {
-  class Sensitivity;
+  class Atmospheric;
 }
 
-class bdm::Sensitivity : public art::EDAnalyzer
+class atm::Atmospheric : public art::EDAnalyzer
 {
 public:
   typedef art::Handle<std::vector<recob::PFParticle>> PFParticleHandle;
@@ -122,15 +122,15 @@ public:
   typedef std::vector<art::Ptr<recob::Track>> TrackVector;
   typedef std::vector<art::Ptr<recob::Shower>> ShowerVector;
 
-  explicit Sensitivity(fhicl::ParameterSet const &p);
+  explicit Atmospheric(fhicl::ParameterSet const &p);
   // The compiler-generated destructor is fine for non-base
   // classes without bare pointers or other resource use.
 
   // Plugins should not be copied or assigned.
-  Sensitivity(Sensitivity const &) = delete;
-  Sensitivity(Sensitivity &&) = delete;
-  Sensitivity &operator=(Sensitivity const &) = delete;
-  Sensitivity &operator=(Sensitivity &&) = delete;
+  Atmospheric(Atmospheric const &) = delete;
+  Atmospheric(Atmospheric &&) = delete;
+  Atmospheric &operator=(Atmospheric const &) = delete;
+  Atmospheric &operator=(Atmospheric &&) = delete;
 
   // Required functions.
   void analyze(art::Event const &e) override;
@@ -143,13 +143,14 @@ private:
   // Declare member data here.
 
   // Root Tree
-  TTree *m_BDMTree; ///<
+  TTree *m_AtmTree; ///<
 
   // Implemented functions
   bool IsVisibleParticle(int PdgCode, std::string process);
   void ResetCounters();
   void GeoLimits(art::ServiceHandle<geo::Geometry const> &geom, float fFidVolCutX, float fFidVolCutY, float fFidVolCutZ);
   bool insideFV(geo::Point_t const &vertex);
+  double PIDACalc(std::vector<float> ResRangeVect, std::vector<float> dEdxVect);
 
   // Variables to save in the tree
   int m_run;   ///<
@@ -187,6 +188,7 @@ private:
   std::vector<double> fShowerLength;
   std::vector<double> fShowerOpenAngle;
   std::vector<std::vector<double>> fShowerEnergy;
+  std::vector<double> fPIDA;
 
   //Reco BDT Variables
   double fCosThetaDetTotalMom;
@@ -195,16 +197,9 @@ private:
   int fnTracks;
   int fnShowers;
   int fnCalorimetryPoints;
-  std::vector<float> fPIDA;
-  std::vector<double> fTrackLength;
-  //std::vector<double> fThetaDetTrack;
-  //std::vector<double> fPhiDetTrack;
-  //std::vector<double> fTrackMomentum;
-  //std::vector<double> fTrackEnergy;
-  std::vector<double> fTrackSummedADC;
-  //std::vector<double> fShowerDepEnergyADC;
-  //std::vector<double> fShower5cmDepEnergy;
-  
+  double fPIDALongestTrack;
+  double fLongestTrack;
+  double fHighestTrackSummedADC;
 
   //BackTracking
   std::vector<int> fDaughterTrackTruePDG;
@@ -250,7 +245,7 @@ private:
   trkf::TrackMomentumCalculator trkm;
 };
 
-bdm::Sensitivity::Sensitivity(fhicl::ParameterSet const &p)
+atm::Atmospheric::Atmospheric(fhicl::ParameterSet const &p)
     : EDAnalyzer{p}, // More initializers here.
       fGeneratorModuleLabel(p.get<std::string>("GeneratorModuleLabel")),
       fGeantModuleLabel(p.get<std::string>("GeantModuleLabel")),
@@ -269,19 +264,20 @@ bdm::Sensitivity::Sensitivity(fhicl::ParameterSet const &p)
   // Call appropriate consumes<>() for any products to be retrieved by this module.
 }
 
-void bdm::Sensitivity::ResetCounters()
+void atm::Atmospheric::ResetCounters()
 {
 
   fCosThetaDetTotalMom = -2;
   fCosPhiDetTotalMom = -2;
-  fnTracks = 0;
-  fnShowers = 0;
-  fnCalorimetryPoints = 0;
-  fTotalMomentumP = 0;
-  fTrackSummedADC.clear();
+  fnTracks = -1;
+  fnShowers = -1;
+  fnCalorimetryPoints = -1;
+  fTotalMomentumP = -1;
+  fPIDALongestTrack = 0;
+  fHighestTrackSummedADC = 0;
 
   fCCNC.clear();
-  fTrackLength.clear();
+  fLongestTrack = 0;
   fDaughterTrackdEdx_Plane0.clear();
   fDaughterTrackdEdx_Plane1.clear();
   fDaughterTrackdEdx_Plane2.clear();
@@ -300,7 +296,7 @@ void bdm::Sensitivity::ResetCounters()
   fCosThetaSunRecoCal = 2;
   fDaughterTrackTruePDG.clear();
 
-  fnGeantParticles = 0;
+  fnGeantParticles = -1;
   fThetaNuLepton.clear();
   fMCNuMomentum.clear();
   fMCPrimaryNuPDG.clear();
@@ -322,7 +318,7 @@ void bdm::Sensitivity::ResetCounters()
   fisMCinside.clear();
   fCosThetaSunTrue = 2;
 
-  fnPFParticleShowerDaughters = 0;
+  fnPFParticleShowerDaughters = -1;
   fShowerID.clear();
   fShowerDirectionX.clear();
   fShowerDirectionY.clear();
@@ -336,7 +332,7 @@ void bdm::Sensitivity::ResetCounters()
   fShowerEnergy.clear();
 }
 
-void bdm::Sensitivity::analyze(art::Event const &evt)
+void atm::Atmospheric::analyze(art::Event const &evt)
 {
   // pid::Chi2PIDAlg fChiAlg;
 
@@ -349,10 +345,10 @@ void bdm::Sensitivity::analyze(art::Event const &evt)
   GeoLimits(geom, 10, 10, 10);
 
   //we need the particle inventory service
-  art::ServiceHandle<cheat::ParticleInventoryService> pi_serv;
+  //art::ServiceHandle<cheat::ParticleInventoryService> pi_serv;
 
   // and the clock data for event
-  auto const clockData = art::ServiceHandle<detinfo::DetectorClocksService const>()->DataFor(evt);
+ // auto const clockData = art::ServiceHandle<detinfo::DetectorClocksService const>()->DataFor(evt);
   // channel quality
   // lariov::ChannelStatusProvider const& channelStatus = art::ServiceHandle<lariov::ChannelStatusService const>()->GetProvider();
 
@@ -366,6 +362,7 @@ void bdm::Sensitivity::analyze(art::Event const &evt)
   PDGtoMass.insert(std::pair<int,float>(2212, 0.938272));
   PDGtoMass.insert(std::pair<int,float>(211, 0.13957));
   PDGtoMass.insert(std::pair<int,float>(321, 0.493677));
+  PDGtoMass.insert(std::pair<int,float>(13, 0.105658));
 
   TVector3 y(0,1,0);
 
@@ -399,9 +396,6 @@ void bdm::Sensitivity::analyze(art::Event const &evt)
 
   std::cout << "Number of CC and/or NC interactions: " << fCCNC.size() << std::endl;
   std::cout << "Nu Interaction (0=CC 1=NC): " << fCCNC[0] << std::endl;
-
-
-
 
   // Truth information (Save geant4 info)
   if (fSaveGeantInfo)
@@ -461,7 +455,7 @@ void bdm::Sensitivity::analyze(art::Event const &evt)
 
   if (!pfParticleHandle.isValid())
   {
-    mf::LogDebug("Sensitivity") << "  Failed to find the PFParticles." << std::endl;
+    mf::LogDebug("Atmospheric") << "  Failed to find the PFParticles." << std::endl;
     return;
   }
 
@@ -498,20 +492,33 @@ void bdm::Sensitivity::analyze(art::Event const &evt)
       if (!associatedTracks.empty())
       {
 
+        double LongestTrack = 1e-10;
+        double HighestTrackSummedADC = 1e-10;
+        long unsigned int LongestTrackID = -2;
+        double PIDALongestTrack = 0;
         // std::cout << "We have Tracks! Yep" << std::endl;
         for (const art::Ptr<recob::Track> &trk : associatedTracks)
         {
           std::vector<art::Ptr<recob::Hit>> trackHits = TrackToHitsAssoc.at(trk.key());
           if(!insideFV(trk->End())) continue;
-          int trkidtruth = TruthMatchUtils::TrueParticleIDFromTotalTrueEnergy(clockData, trackHits, true);
-          const simb::MCParticle *particle = pi_serv->TrackIdToParticle_P(trkidtruth);
+          //int trkidtruth = TruthMatchUtils::TrueParticleIDFromTotalTrueEnergy(clockData, trackHits, true);
+          //const simb::MCParticle *particle = pi_serv->TrackIdToParticle_P(trkidtruth);
   
-          //fTrackSummedADC.push_back(trackHits.SummedADC());
 
+          //fDaughterTrackTruePDG.push_back(particle->PdgCode());
+          float trackADC = 0;
+          for(const art::Ptr<recob::Hit> &hit : trackHits){
 
-          fDaughterTrackTruePDG.push_back(particle->PdgCode());
+            trackADC += hit->SummedADC();
 
-          fTrackLength.push_back(trk->Length());
+          }
+          if(trackADC > fHighestTrackSummedADC) HighestTrackSummedADC = trackADC;
+          
+          if(trk->Length() > LongestTrack){
+              LongestTrack = trk->Length();
+              LongestTrackID = trk.key();
+          } 
+          
 
 
           std::vector<art::Ptr<anab::ParticleID>> trackPID = TrackToPIDAssoc.at(trk.key());
@@ -535,17 +542,16 @@ void bdm::Sensitivity::analyze(art::Event const &evt)
 
               if(AlgScore.fAlgName == "Chi2") {
                 //Sum Chi2 hyphotesis all planes 
-                if(AlgScore.fAssumedPdg == 13 || AlgScore.fPlaneMask[2] != 1 ) continue; //Discart muon hypothesis
                 PDGtoChi2[AlgScore.fAssumedPdg] = AlgScore.fValue;
 
-                std::cout << "------Track No.: " << trk.key() << std::endl;
+                //std::cout << "------Track No.: " << trk.key() << std::endl;
                 //std::cout << "AlgScore.fAlgName: " << AlgScore.fAlgName << std::endl;
                 //std::cout << "AlgScore.fVariableType: " << AlgScore.fVariableType << std::endl;
                 //std::cout << "AlgScore.fTrackDir: " << AlgScore.fTrackDir << std::endl;
-                std::cout << "AlgScore.fAssumedPdg: " << AlgScore.fAssumedPdg << std::endl;
+                //std::cout << "AlgScore.fAssumedPdg: " << AlgScore.fAssumedPdg << std::endl;
                 //std::cout << "AlgScore.fNdf: " << AlgScore.fNdf << std::endl;
-                std::cout << "AlgScore.fValue: " << AlgScore.fValue << std::endl;
-                std::cout << "AlgScore.fPlaneMask: " << AlgScore.fPlaneMask[2] << std::endl;
+                //std::cout << "AlgScore.fValue: " << AlgScore.fValue << std::endl;
+                //std::cout << "AlgScore.fPlaneMask: " << AlgScore.fPlaneMask[2] << std::endl;
 
               }
 
@@ -553,17 +559,17 @@ void bdm::Sensitivity::analyze(art::Event const &evt)
 
           }
 
-          std::cout << "\nThe map PDGtoChi2 is : \n";
-          std::cout << "\tKEY\tELEMENT\n";
+          //std::cout << "\nThe map PDGtoChi2 is : \n";
+          //std::cout << "\tKEY\tELEMENT\n";
           std::map<int, float>::iterator it;
           for( it = PDGtoChi2.begin(); it != PDGtoChi2.end(); ++it){
-            std::cout << '\t' << it->first << '\t' << it->second << '\n';
+           // std::cout << '\t' << it->first << '\t' << it->second << '\n';
             if(it->second < minChi2value){
               minChi2value = it->second;
               minChi2PDG = it->first;
             }
           }
-              std::cout << "min Ch2 hypothesis : " << minChi2PDG << " with " << minChi2value << ". \n";
+             // std::cout << "min Ch2 hypothesis : " << minChi2PDG << " with " << minChi2value << ". \n";
               fminChi2value.push_back(minChi2value);
               fminChi2PDG.push_back(minChi2PDG);
 
@@ -589,7 +595,7 @@ void bdm::Sensitivity::analyze(art::Event const &evt)
 
           float KE = 0;
 
-          fnCalorimetryPoints += associatedCalo.size();
+          fnCalorimetryPoints = associatedCalo.size()/3;
 
           for (const art::Ptr<anab::Calorimetry> &cal : associatedCalo)
           {
@@ -613,23 +619,9 @@ void bdm::Sensitivity::analyze(art::Event const &evt)
 
               //std::cout << "temp_dEdx.at(final)= " << temp_dEdx.at(temp_dEdx.size() - 1) << std::endl;
             }
-            float val = 0;
 
-            if (cal->ResidualRange().size() == 0)
-              continue;
-
-            for (size_t i_r = 0; i_r < cal->ResidualRange().size(); i_r++)
-            {
-
-              if ((i_r == 0 || i_r == cal->ResidualRange().size() - 1) && cal->ResidualRange().at(i_r)<30)
-                continue;
-              // if(cal->ResidualRange().at(i_r)>60) continue;
-              val += temp_dEdx.at(i_r) * std::pow(cal->ResidualRange().at(i_r), 0.42);
-            }
-            if (val / (cal->ResidualRange().size() - 2) > 60)
-              continue;
-            fPIDA.push_back(val / (cal->ResidualRange().size() - 2));
-
+            
+      
 
             if (planenum == 0)
             {
@@ -655,27 +647,44 @@ void bdm::Sensitivity::analyze(art::Event const &evt)
             }
 
             temp_dEdx.clear();
+
+            double PIDA =  PIDACalc(cal->ResidualRange(), temp_dEdx);
+            if(PIDA != -999) fPIDA.push_back(PIDA); 
+            if(trk.key() == LongestTrackID) PIDALongestTrack = PIDA;
+
           } // Calo
 
-          TVector3 TrackDirection(trk->StartDirection().X(), trk->StartDirection().Y(), trk->StartDirection().Z());
+        TVector3 TrackDirection(trk->StartDirection().X(), trk->StartDirection().Y(), trk->StartDirection().Z());
 
-          if (InvertTrack)
-          {
-            TrackDirection = -TrackDirection;
-          }
+        if (InvertTrack)
+        {
+          TrackDirection = -TrackDirection;
+        }
 
+        if(PDGtoMass[minChi2PDG] == 13 || PDGtoMass[minChi2PDG] == 211 ){
+          TotalMomentumRecoRange += trkm.GetTrackMomentum(trk->Length(), 13) * TrackDirection;
+        }
+
+        if(PDGtoMass[minChi2PDG] == 2212 || PDGtoMass[minChi2PDG] == 321 ){
           TotalMomentumRecoRange += trkm.GetTrackMomentum(trk->Length(), 2212) * TrackDirection;
+        }
+
           double Pcal = sqrt(KE * KE - PDGtoMass[minChi2PDG] * PDGtoMass[minChi2PDG]);
           TotalMomentumRecoCal += Pcal * TrackDirection;
 
-        } // Tracks- loop
-      }   // if there is a track
+      } // Tracks- loop
+
+      fHighestTrackSummedADC = HighestTrackSummedADC;
+      fLongestTrack = LongestTrack;
+      fPIDALongestTrack = PIDALongestTrack;
+      
+    }   // if there is a track
 
       if (fShowerRecoSave)
       {
         // SHOWERS RECO INFO ====================================================================
         const std::vector<art::Ptr<recob::Shower>> &associatedShowers = pfPartToShowerAssoc.at(iPfp);
-        fnShowers += associatedShowers.size();
+        fnShowers = associatedShowers.size();
 
         if (!associatedShowers.empty())
         {
@@ -711,87 +720,88 @@ void bdm::Sensitivity::analyze(art::Event const &evt)
     fCosThetaSunRecoCal = TotalMomentumRecoCal.Unit() * DMMomentum.Vect().Unit(); 
     }
 
-  m_BDMTree->Fill();
+  m_AtmTree->Fill();
 }
 
-void bdm::Sensitivity::beginJob()
+void atm::Atmospheric::beginJob()
 {
 
   art::ServiceHandle<art::TFileService const> tfs;
-  m_BDMTree = tfs->make<TTree>("BoostedDM", "SensitivityAnalysis");
+  m_AtmTree = tfs->make<TTree>("Atm", "AtmosphericAnalysis");
 
-  m_BDMTree->Branch("run", &m_run, "run/I");
-  m_BDMTree->Branch("event", &m_event, "event/I");
-  m_BDMTree->Branch("TrackLength", &fTrackLength);
-  m_BDMTree->Branch("DaughterTrackdEdx_Plane0", &fDaughterTrackdEdx_Plane0);
-  m_BDMTree->Branch("DaughterTrackResidualRange_Plane0", &fDaughterTrackResidualRange_Plane0);
-  m_BDMTree->Branch("DaughterKE_Plane0", &fDaughterKE_Plane0);
-  m_BDMTree->Branch("DaughterTrackdEdx_Plane1", &fDaughterTrackdEdx_Plane1);
-  m_BDMTree->Branch("DaughterTrackResidualRange_Plane1", &fDaughterTrackResidualRange_Plane1);
-  m_BDMTree->Branch("DaughterKE_Plane1", &fDaughterKE_Plane1);
-  m_BDMTree->Branch("DaughterTrackdEdx_Plane2", &fDaughterTrackdEdx_Plane2);
-  m_BDMTree->Branch("DaughterTrackResidualRange_Plane2", &fDaughterTrackResidualRange_Plane2);
-  m_BDMTree->Branch("DaughterKE_Plane2", &fDaughterKE_Plane2);
-  m_BDMTree->Branch("PIDA", &fPIDA);
-  m_BDMTree->Branch("DaughterTrackTruePDG", &fDaughterTrackTruePDG);
+  m_AtmTree->Branch("run", &m_run, "run/I");
+  m_AtmTree->Branch("event", &m_event, "event/I");
+  m_AtmTree->Branch("TrackLength", &fLongestTrack);
+  m_AtmTree->Branch("DaughterTrackdEdx_Plane0", &fDaughterTrackdEdx_Plane0);
+  m_AtmTree->Branch("DaughterTrackResidualRange_Plane0", &fDaughterTrackResidualRange_Plane0);
+  m_AtmTree->Branch("DaughterKE_Plane0", &fDaughterKE_Plane0);
+  m_AtmTree->Branch("DaughterTrackdEdx_Plane1", &fDaughterTrackdEdx_Plane1);
+  m_AtmTree->Branch("DaughterTrackResidualRange_Plane1", &fDaughterTrackResidualRange_Plane1);
+  m_AtmTree->Branch("DaughterKE_Plane1", &fDaughterKE_Plane1);
+  m_AtmTree->Branch("DaughterTrackdEdx_Plane2", &fDaughterTrackdEdx_Plane2);
+  m_AtmTree->Branch("DaughterTrackResidualRange_Plane2", &fDaughterTrackResidualRange_Plane2);
+  m_AtmTree->Branch("DaughterKE_Plane2", &fDaughterKE_Plane2);
+  m_AtmTree->Branch("PIDA", &fPIDA);
+  m_AtmTree->Branch("HighestTrackSummedADC", &fHighestTrackSummedADC);
+  m_AtmTree->Branch("PIDALongestTrack", &fPIDALongestTrack);
+  m_AtmTree->Branch("DaughterTrackTruePDG", &fDaughterTrackTruePDG);
 
-  m_BDMTree->Branch("fnPFParticleShowerDaughters", &fnPFParticleShowerDaughters);
-  m_BDMTree->Branch("ShowerID", &fShowerID);
-  m_BDMTree->Branch("ShowerDirectionX", &fShowerDirectionX);
-  m_BDMTree->Branch("ShowerDirectionY", &fShowerDirectionY);
-  m_BDMTree->Branch("ShowerDirectionZ", &fShowerDirectionZ);
-  m_BDMTree->Branch("ShowerDirectionErr", &fShowerDirectionErr);
-  m_BDMTree->Branch("ShowerShowerStart", &fShowerShowerStart);
-  m_BDMTree->Branch("ShowerShowerStartErr", &fShowerShowerStartErr);
-  m_BDMTree->Branch("Showerbest_plane", &fShowerbest_plane);
-  m_BDMTree->Branch("ShowerEnergy", &fShowerEnergy);
-  m_BDMTree->Branch("ShowerLength", &fShowerLength);
-  m_BDMTree->Branch("ShowerOpenAngle", &fShowerOpenAngle);
+  m_AtmTree->Branch("fnPFParticleShowerDaughters", &fnPFParticleShowerDaughters);
+  m_AtmTree->Branch("ShowerID", &fShowerID);
+  m_AtmTree->Branch("ShowerDirectionX", &fShowerDirectionX);
+  m_AtmTree->Branch("ShowerDirectionY", &fShowerDirectionY);
+  m_AtmTree->Branch("ShowerDirectionZ", &fShowerDirectionZ);
+  m_AtmTree->Branch("ShowerDirectionErr", &fShowerDirectionErr);
+  m_AtmTree->Branch("ShowerShowerStart", &fShowerShowerStart);
+  m_AtmTree->Branch("ShowerShowerStartErr", &fShowerShowerStartErr);
+  m_AtmTree->Branch("Showerbest_plane", &fShowerbest_plane);
+  m_AtmTree->Branch("ShowerEnergy", &fShowerEnergy);
+  m_AtmTree->Branch("ShowerLength", &fShowerLength);
+  m_AtmTree->Branch("ShowerOpenAngle", &fShowerOpenAngle);
 
-  m_BDMTree->Branch("CosThetaSunRecoRange",  &fCosThetaSunRecoRange);
-  m_BDMTree->Branch("CosThetaSunRecoCal",  &fCosThetaSunRecoCal);
-  m_BDMTree->Branch("CosThetaDetTotalMom", &fCosThetaDetTotalMom);  
-  m_BDMTree->Branch("CosPhiDetTotalMom", &fCosPhiDetTotalMom);
-  m_BDMTree->Branch("nTracks", &fnTracks);
-  m_BDMTree->Branch("nShowers", &fnShowers);
-  m_BDMTree->Branch("TotalMomentumP", &fTotalMomentumP);
-  m_BDMTree->Branch("nCalorimetryPoints", &fnCalorimetryPoints);
-  m_BDMTree->Branch("TrackSummedADC", &fTrackSummedADC);
-  m_BDMTree->Branch("minChi2value", &fminChi2value);
-  m_BDMTree->Branch("minChi2PDG", &fminChi2PDG);
+  m_AtmTree->Branch("CosThetaSunRecoRange",  &fCosThetaSunRecoRange);
+  m_AtmTree->Branch("CosThetaSunRecoCal",  &fCosThetaSunRecoCal);
+  m_AtmTree->Branch("CosThetaDetTotalMom", &fCosThetaDetTotalMom);  
+  m_AtmTree->Branch("CosPhiDetTotalMom", &fCosPhiDetTotalMom);
+  m_AtmTree->Branch("nTracks", &fnTracks);
+  m_AtmTree->Branch("nShowers", &fnShowers);
+  m_AtmTree->Branch("TotalMomentumP", &fTotalMomentumP);
+  m_AtmTree->Branch("nCalorimetryPoints", &fnCalorimetryPoints);
+  m_AtmTree->Branch("minChi2value", &fminChi2value);
+  m_AtmTree->Branch("minChi2PDG", &fminChi2PDG);
 
- // m_BDMTree->Branch("SunDirectionFromTrueBDM", &fSunDirectionFromTrueBDM);
- // m_BDMTree->Branch("TruePrimaryBDMVertex", &fPrimaryBDMVertex);
-  m_BDMTree->Branch("CCNC", &fCCNC);
-  m_BDMTree->Branch("ThetaNuLepton", &fThetaNuLepton);
-  m_BDMTree->Branch("MCPrimaryNuPDG", &fMCPrimaryNuPDG);
-  m_BDMTree->Branch("MCNuMomentum", &fMCNuMomentum);
-  m_BDMTree->Branch("MCInitialPositionNu", &fMCInitialPositionNu);
-  m_BDMTree->Branch("MCCosAzimuthNu", &fMCCosAzimuthNu);
-  m_BDMTree->Branch("nGeantParticles", &fnGeantParticles);
-  m_BDMTree->Branch("MCTrackId", &fMCTrackId);
-  m_BDMTree->Branch("MCPdgCode", &fMCPdgCode);
-  m_BDMTree->Branch("MCMother", &fMCMother);
-  m_BDMTree->Branch("MCProcess", &fMCProcess);
-  m_BDMTree->Branch("MCEndProcess", &fMCEndProcess);
-  m_BDMTree->Branch("MCNumberDaughters", &fMCNumberDaughters);
-  m_BDMTree->Branch("MCPosition", &fMCPosition);
-  m_BDMTree->Branch("MCEndPosition", &fMCEndPosition);
-  m_BDMTree->Branch("MCMomentum", &fMCMomentum);
-  m_BDMTree->Branch("MCStartEnergy", &fMCStartEnergy);
-  m_BDMTree->Branch("MCEndMomentum", &fMCEndMomentum);
-  m_BDMTree->Branch("MCEndEnergy", &fMCEndEnergy);
-  m_BDMTree->Branch("MCStatusCode", &fMCStatusCode);
-  m_BDMTree->Branch("isMCinside", &fisMCinside);
-  m_BDMTree->Branch("CosThetaSunTrue", &fCosThetaSunTrue);
+ // m_AtmTree->Branch("SunDirectionFromTrueBDM", &fSunDirectionFromTrueBDM);
+ // m_AtmTree->Branch("TruePrimaryBDMVertex", &fPrimaryBDMVertex);
+  m_AtmTree->Branch("CCNC", &fCCNC);
+  m_AtmTree->Branch("ThetaNuLepton", &fThetaNuLepton);
+  m_AtmTree->Branch("MCPrimaryNuPDG", &fMCPrimaryNuPDG);
+  m_AtmTree->Branch("MCNuMomentum", &fMCNuMomentum);
+  m_AtmTree->Branch("MCInitialPositionNu", &fMCInitialPositionNu);
+  m_AtmTree->Branch("MCCosAzimuthNu", &fMCCosAzimuthNu);
+  m_AtmTree->Branch("nGeantParticles", &fnGeantParticles);
+  m_AtmTree->Branch("MCTrackId", &fMCTrackId);
+  m_AtmTree->Branch("MCPdgCode", &fMCPdgCode);
+  m_AtmTree->Branch("MCMother", &fMCMother);
+  m_AtmTree->Branch("MCProcess", &fMCProcess);
+  m_AtmTree->Branch("MCEndProcess", &fMCEndProcess);
+  m_AtmTree->Branch("MCNumberDaughters", &fMCNumberDaughters);
+  m_AtmTree->Branch("MCPosition", &fMCPosition);
+  m_AtmTree->Branch("MCEndPosition", &fMCEndPosition);
+  m_AtmTree->Branch("MCMomentum", &fMCMomentum);
+  m_AtmTree->Branch("MCStartEnergy", &fMCStartEnergy);
+  m_AtmTree->Branch("MCEndMomentum", &fMCEndMomentum);
+  m_AtmTree->Branch("MCEndEnergy", &fMCEndEnergy);
+  m_AtmTree->Branch("MCStatusCode", &fMCStatusCode);
+  m_AtmTree->Branch("isMCinside", &fisMCinside);
+  m_AtmTree->Branch("CosThetaSunTrue", &fCosThetaSunTrue);
 }
 
-void bdm::Sensitivity::endJob()
+void atm::Atmospheric::endJob()
 {
   // Implementation of optional member function here.
 }
 
-bool bdm::Sensitivity::IsVisibleParticle(int Pdg, std::string process)
+bool atm::Atmospheric::IsVisibleParticle(int Pdg, std::string process)
 {
 
   bool condition = false;
@@ -804,7 +814,34 @@ bool bdm::Sensitivity::IsVisibleParticle(int Pdg, std::string process)
   return condition;
 }
 
-void bdm::Sensitivity::GeoLimits(art::ServiceHandle<geo::Geometry const> &geom, float fFidVolCutX, float fFidVolCutY, float fFidVolCutZ)
+double atm::Atmospheric::PIDACalc(std::vector<float> ResRangeVect, std::vector<float> dEdxVect){
+
+  double val = -999;
+  if( (ResRangeVect.size() != dEdxVect.size()) || ResRangeVect.size() == 0 )  return val;
+  val = 0;
+
+  for (size_t i_r = 0; i_r < ResRangeVect.size(); i_r++)
+  {
+
+    if ( (i_r == 0 || (i_r == ResRangeVect.size() - 1) ) && ResRangeVect.at(i_r)>30) continue;
+    val += dEdxVect.at(i_r) * std::pow(ResRangeVect.at(i_r), 0.42);
+
+  }
+
+  val = val / (ResRangeVect.size() - 2);
+
+  if(val > 60){
+
+    val = -999;
+    return val;
+
+  }
+
+  return val;
+
+}
+
+void atm::Atmospheric::GeoLimits(art::ServiceHandle<geo::Geometry const> &geom, float fFidVolCutX, float fFidVolCutY, float fFidVolCutZ)
 {
 
   // Define histogram boundaries (cm).
@@ -843,7 +880,7 @@ void bdm::Sensitivity::GeoLimits(art::ServiceHandle<geo::Geometry const> &geom, 
   fFidVolZmax = maxz - fFidVolCutZ;
 } // GeoLimits()
 
-bool bdm::Sensitivity::insideFV(geo::Point_t const &vertex)
+bool atm::Atmospheric::insideFV(geo::Point_t const &vertex)
 {
 
   double const x = vertex.X();
@@ -856,4 +893,4 @@ bool bdm::Sensitivity::insideFV(geo::Point_t const &vertex)
 
 } // insideFV()
 
-DEFINE_ART_MODULE(bdm::Sensitivity)
+DEFINE_ART_MODULE(atm::Atmospheric)
