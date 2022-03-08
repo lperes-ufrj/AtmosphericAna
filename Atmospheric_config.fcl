@@ -10,6 +10,7 @@ atmospheric:
    ShowerModuleLabel:         "pandoraShower"
    CaloModuleLabel: "pandoracalo"
    PIDModuleLabel: "pandorapid"
+   SpacePointLabel: "pandora"
    SaveGeantInfo: "true"
    CheatVertex:   "true"
    ShowerRecoSave: "true"
