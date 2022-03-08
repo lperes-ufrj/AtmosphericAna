@@ -95,7 +95,6 @@
 #include "dune/AnaUtils/DUNEAnaTrackUtils.h"
 #include "dune/AnaUtils/DUNEAnaShowerUtils.h"
 
-#define OUT_DM_CODE 2000010000
 
 
 // Detector Limits =========================
@@ -243,6 +242,7 @@ private:
   bool fShowerRecoSave;
 
   trkf::TrackMomentumCalculator trkm;
+
 };
 
 atm::Atmospheric::Atmospheric(fhicl::ParameterSet const &p)
@@ -258,8 +258,6 @@ atm::Atmospheric::Atmospheric(fhicl::ParameterSet const &p)
       fSaveGeantInfo(p.get<bool>("SaveGeantInfo")),
       fCheatVertex(p.get<bool>("CheatVertex")),
       fShowerRecoSave(p.get<bool>("ShowerRecoSave"))
-      
-
 {
   // Call appropriate consumes<>() for any products to be retrieved by this module.
 }
@@ -365,14 +363,45 @@ void atm::Atmospheric::analyze(art::Event const &evt)
   PDGtoMass.insert(std::pair<int,float>(321, 0.493677));
   PDGtoMass.insert(std::pair<int,float>(13, 0.105658));
 
-  TVector3 y(0,1,0);
+  std::ifstream SunPositions;
+  SunPositions.open("/dune/app/users/lperes/env_dunetpc_v09_41_00_02/srcs/dunetpc/dune/AtmosphericAna/background_sun_pos.dat");
+  int nPosSun = 100000;
+
+  TVector3 RandomSunPosition;
+
+  int nline_SunPos = rand() % nPosSun;
+  int nline = 1;
+  double x = 0, y = 0, z = 0;
+
+  while (1)
+  {
+     if (SunPositions.eof())
+        break;
+     SunPositions >> x >> y >> z;
+     // if (SunFile.fail())
+     // throw std::runtime_error("Can't read x, y or z at line " + std::to_string(iLine));
+     //std::cout << "x: " << x << " y: " << y << " z: " << z << std::endl;
+     if(nline==nline_SunPos){
+      // std::cout << "nline==nline_SunPos\n";
+       RandomSunPosition.SetXYZ(x, y, z);
+      // std::cout << "RandomSunPosition.Mag() = " << RandomSunPosition.Mag() << std::endl;
+     //  std::cout << "x,y,z = " <<x << "\t" << y <<"\t" << z << std::endl;
+     }
+     nline++;
+  }
+
+
+
+
+
+  TVector3 vertical(0,1,0);
 
   // std::cout << "  Run: " << m_run << std::endl;
   // std::cout << "  Event: " << m_event << std::endl;
   auto const &MCTruthHandle = evt.getValidHandle<std::vector<simb::MCTruth>>(fGeneratorModuleLabel);
   auto const &MCTruthObjs = *MCTruthHandle;
 
-  TLorentzVector DMMomentum;
+  //TLorentzVector DMMomentum;
   TLorentzVector DMInteracPosition;
 
   // std::cout << " *** Boosted DM analyzer is on, baby!!! *** " << std::endl;
@@ -391,7 +420,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
     std::vector<double> tmp_fMCInitialPositionNu = {nu.Vx(), nu.Vy(), nu.Vz()};
     fMCInitialPositionNu.push_back(tmp_fMCInitialPositionNu);
     
-    fMCCosAzimuthNu =  y*nu.Momentum().Vect().Unit() ;
+    fMCCosAzimuthNu =  vertical*nu.Momentum().Vect().Unit() ;
   
   }
 
@@ -444,7 +473,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
       }
     }
 
-    fCosThetaSunTrue = TotalMomentumTrue.Vect().Unit() * DMMomentum.Vect().Unit();
+    fCosThetaSunTrue = TotalMomentumTrue.Vect().Unit() * RandomSunPosition;
   }
 
   TrackVector trackVector;
@@ -717,13 +746,16 @@ void atm::Atmospheric::analyze(art::Event const &evt)
     } // end -- Only  to a true NC neutrino interaction
 
     //TVector3 z(0,0,1);
+    //std::cout << "TotalMomentumRecoRange.Mag() = " << TotalMomentumRecoRange.Mag() << std::endl; 
     if (TotalMomentumRecoRange.Mag() > 0.0)
     {
     fTotalMomentumP = TotalMomentumRecoRange.Mag();
     fCosThetaDetTotalMom = TotalMomentumRecoRange.Unit().CosTheta();
     fCosPhiDetTotalMom = cos(TotalMomentumRecoRange.Unit().Phi());
-    fCosThetaSunRecoRange = TotalMomentumRecoRange.Unit() * DMMomentum.Vect().Unit();
-    fCosThetaSunRecoCal = TotalMomentumRecoCal.Unit() * DMMomentum.Vect().Unit(); 
+    fCosThetaSunRecoRange = TotalMomentumRecoRange.Unit() * RandomSunPosition;
+    //std::cout << "fCosThetaSunRecoRange =" << fCosThetaSunRecoRange <<std::endl;
+    fCosThetaSunRecoCal = TotalMomentumRecoCal.Unit() * RandomSunPosition; 
+    //std::cout << "fCosThetaSunRecoCal =" << fCosThetaSunRecoCal <<std::endl;
     }
 
   //Fill the Tree just for a NC event, and if there is any information in the BDT variables
