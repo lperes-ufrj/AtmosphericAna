@@ -1,3 +1,6 @@
+#include "simulationservices_dune.fcl"
+#include "services_dune.fcl"
+
 BEGIN_PROLOG
 
 atmospheric:
@@ -10,8 +13,11 @@ atmospheric:
    ShowerModuleLabel:         "pandoraShower"
    CaloModuleLabel: "pandoracalo"
    PIDModuleLabel: "pandorapid"
-   SaveGeantInfo: "true"
-   CheatVertex:   "true"
+   SpacePointModuleLabel: "pandora"
+   SaveGeantInfo: "false"
+   CheatVertex:   "false"
    ShowerRecoSave: "true"
 
 }
+
+END_PROLOG

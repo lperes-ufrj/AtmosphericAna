@@ -78,7 +78,7 @@
 #include "larreco/RecoAlg/TrackMomentumCalculator.h"
 #include "larana/ParticleIdentification/Chi2PIDAlg.h"
 #include "larsim/Utils/TruthMatchUtils.h"
-//#include "larsim/MCCheater/ParticleInventoryService.h"
+#include "larsim/MCCheater/ParticleInventoryService.h"
 #include "lardata/DetectorInfoServices/DetectorClocksService.h"
 
 // Geometry includes
@@ -95,7 +95,6 @@
 #include "dune/AnaUtils/DUNEAnaTrackUtils.h"
 #include "dune/AnaUtils/DUNEAnaShowerUtils.h"
 
-#define OUT_DM_CODE 2000010000
 
 
 // Detector Limits =========================
@@ -144,6 +143,7 @@ private:
 
   // Root Tree
   TTree *m_AtmTree; ///<
+  TTree *m_AllEvents;
 
   // Implemented functions
   bool IsVisibleParticle(int PdgCode, std::string process);
@@ -175,8 +175,7 @@ private:
   double fMCCosAzimuthNu;
   int nTracks;
   int nTracksFlipped;
-  
-  int fnPFParticleShowerDaughters;
+
   std::vector<int> fShowerID;
   std::vector<float> fShowerDirectionX;
   std::vector<float> fShowerDirectionY;
@@ -196,7 +195,7 @@ private:
   double fTotalMomentumP;
   int fnTracks;
   int fnShowers;
-  int fnCalorimetryPoints;
+  int fnSpacePoints;
   double fPIDALongestTrack;
   double fLongestTrack;
   double fHighestTrackSummedADC;
@@ -237,12 +236,13 @@ private:
   std::string fPFParticleModuleLabel;
   std::string fCaloModuleLabel;
   std::string fPIDModuleLabel;
-  std::string fHitModuleLabel;
+  std::string fSpacePointModuleLabel;
   bool fSaveGeantInfo;
   bool fCheatVertex;
   bool fShowerRecoSave;
 
   trkf::TrackMomentumCalculator trkm;
+
 };
 
 atm::Atmospheric::Atmospheric(fhicl::ParameterSet const &p)
@@ -254,12 +254,10 @@ atm::Atmospheric::Atmospheric(fhicl::ParameterSet const &p)
       fPFParticleModuleLabel(p.get<std::string>("PFParticleModuleLabel")),
       fCaloModuleLabel(p.get<std::string>("CaloModuleLabel")),
       fPIDModuleLabel(p.get<std::string>("PIDModuleLabel")),
+      fSpacePointModuleLabel(p.get<std::string>("SpacePointModuleLabel")),
       fSaveGeantInfo(p.get<bool>("SaveGeantInfo")),
       fCheatVertex(p.get<bool>("CheatVertex")),
       fShowerRecoSave(p.get<bool>("ShowerRecoSave"))
-// fChiAlg(p.get< fhicl::ParameterSet >("Chi2PIDAlg"))
-// fSpacePointModuleLabel(p.get<std::string>("SpacePointModuleLabel"))
-
 {
   // Call appropriate consumes<>() for any products to be retrieved by this module.
 }
@@ -269,15 +267,17 @@ void atm::Atmospheric::ResetCounters()
 
   fCosThetaDetTotalMom = -2;
   fCosPhiDetTotalMom = -2;
-  fnTracks = -1;
-  fnShowers = -1;
-  fnCalorimetryPoints = -1;
-  fTotalMomentumP = -1;
+  fnTracks = 0;
+  fnShowers = 0;
+  fnSpacePoints = 0;
+  fTotalMomentumP = 0;
   fPIDALongestTrack = 0;
   fHighestTrackSummedADC = 0;
+  fLongestTrack = 0;
+
 
   fCCNC.clear();
-  fLongestTrack = 0;
+
   fDaughterTrackdEdx_Plane0.clear();
   fDaughterTrackdEdx_Plane1.clear();
   fDaughterTrackdEdx_Plane2.clear();
@@ -318,7 +318,6 @@ void atm::Atmospheric::ResetCounters()
   fisMCinside.clear();
   fCosThetaSunTrue = 2;
 
-  fnPFParticleShowerDaughters = -1;
   fShowerID.clear();
   fShowerDirectionX.clear();
   fShowerDirectionY.clear();
@@ -345,10 +344,10 @@ void atm::Atmospheric::analyze(art::Event const &evt)
   GeoLimits(geom, 10, 10, 10);
 
   //we need the particle inventory service
-  //art::ServiceHandle<cheat::ParticleInventoryService> pi_serv;
+  art::ServiceHandle<cheat::ParticleInventoryService> pi_serv;
 
   // and the clock data for event
- // auto const clockData = art::ServiceHandle<detinfo::DetectorClocksService const>()->DataFor(evt);
+   auto const clockData = art::ServiceHandle<detinfo::DetectorClocksService const>()->DataFor(evt);
   // channel quality
   // lariov::ChannelStatusProvider const& channelStatus = art::ServiceHandle<lariov::ChannelStatusService const>()->GetProvider();
 
@@ -364,14 +363,41 @@ void atm::Atmospheric::analyze(art::Event const &evt)
   PDGtoMass.insert(std::pair<int,float>(321, 0.493677));
   PDGtoMass.insert(std::pair<int,float>(13, 0.105658));
 
-  TVector3 y(0,1,0);
+  std::ifstream SunPositions;
+  SunPositions.open("/dune/app/users/lperes/env_dunetpc_v09_41_00_02/srcs/dunetpc/dune/AtmosphericAna/background_sun_pos.dat");
+  int nPosSun = 100000;
+
+  TVector3 RandomSunPosition;
+
+  int nline_SunPos = rand() % nPosSun;
+  int nline = 1;
+  double x = 0, y = 0, z = 0;
+
+  while (1)
+  {
+     if (SunPositions.eof())
+        break;
+     SunPositions >> x >> y >> z;
+     // if (SunFile.fail())
+     // throw std::runtime_error("Can't read x, y or z at line " + std::to_string(iLine));
+     //std::cout << "x: " << x << " y: " << y << " z: " << z << std::endl;
+     if(nline==nline_SunPos){
+      // std::cout << "nline==nline_SunPos\n";
+       RandomSunPosition.SetXYZ(x, y, z);
+      // std::cout << "RandomSunPosition.Mag() = " << RandomSunPosition.Mag() << std::endl;
+     //  std::cout << "x,y,z = " <<x << "\t" << y <<"\t" << z << std::endl;
+     }
+     nline++;
+  }
+
+  TVector3 vertical(0,1,0);
 
   // std::cout << "  Run: " << m_run << std::endl;
   // std::cout << "  Event: " << m_event << std::endl;
   auto const &MCTruthHandle = evt.getValidHandle<std::vector<simb::MCTruth>>(fGeneratorModuleLabel);
   auto const &MCTruthObjs = *MCTruthHandle;
 
-  TLorentzVector DMMomentum;
+  //TLorentzVector DMMomentum;
   TLorentzVector DMInteracPosition;
 
   // std::cout << " *** Boosted DM analyzer is on, baby!!! *** " << std::endl;
@@ -390,12 +416,12 @@ void atm::Atmospheric::analyze(art::Event const &evt)
     std::vector<double> tmp_fMCInitialPositionNu = {nu.Vx(), nu.Vy(), nu.Vz()};
     fMCInitialPositionNu.push_back(tmp_fMCInitialPositionNu);
     
-    fMCCosAzimuthNu =  y*nu.Momentum().Vect().Unit() ;
+    fMCCosAzimuthNu =  vertical*nu.Momentum().Vect().Unit() ;
   
   }
 
-  std::cout << "Number of CC and/or NC interactions: " << fCCNC.size() << std::endl;
-  std::cout << "Nu Interaction (0=CC 1=NC): " << fCCNC[0] << std::endl;
+  //std::cout << "Number of CC and/or NC interactions: " << fCCNC.size() << std::endl;
+  //std::cout << "Nu Interaction (0=CC 1=NC): " << fCCNC[0] << std::endl;
 
   // Truth information (Save geant4 info)
   if (fSaveGeantInfo)
@@ -405,7 +431,6 @@ void atm::Atmospheric::analyze(art::Event const &evt)
     auto const &MCParticleObjs = *MCParticleHandle;
 
     fnGeantParticles = MCParticleObjs.size();
-    if(( fCCNC[0] == 1) ){ // Only  to a true NC neutrino interaction
       for (size_t i = 0; i < MCParticleObjs.size(); i++)
       {
       
@@ -438,9 +463,9 @@ void atm::Atmospheric::analyze(art::Event const &evt)
           TotalMomentumTrue += MCParticleObj.Momentum();
         }
       }
-    }
+    
 
-    fCosThetaSunTrue = TotalMomentumTrue.Vect().Unit() * DMMomentum.Vect().Unit();
+    fCosThetaSunTrue = TotalMomentumTrue.Vect().Unit() * RandomSunPosition;
   }
 
   TrackVector trackVector;
@@ -465,20 +490,21 @@ void atm::Atmospheric::analyze(art::Event const &evt)
   art::FindManyP<anab::Calorimetry> TrackToCaloAssoc(trackHandle, evt, fCaloModuleLabel);
   art::FindManyP<recob::Hit> TrackToHitsAssoc(trackHandle, evt, fTrackModuleLabel);
   art::FindManyP<anab::ParticleID> TrackToPIDAssoc(trackHandle, evt, fPIDModuleLabel);
+  art::FindManyP<recob::SpacePoint> pfpToSpacePoint(pfParticleHandle, evt, fSpacePointModuleLabel);
   //art::FindManyP<recob::Hit> TrackToHitsAssoc(trackHandle, evt, fHitModuleLabel);
 
   const std::vector<art::Ptr<recob::PFParticle>> pfparticleVect = dune_ana::DUNEAnaEventUtils::GetPFParticles(evt, fPFParticleModuleLabel);
 
   // Block adapted from ConsolidatedPFParticleAnalysisTemplate should work fine!
-  if(( fCCNC[0] == 1) ){ // Only  to a true NC neutrino interaction
     for (size_t iPfp = 0; iPfp < pfparticleVect.size(); iPfp++)
     {
 
-        if (fCCNC[0] == 0) continue; // Only  to a true NC neutrino interaction
+      const std::vector<art::Ptr<recob::SpacePoint>> &associatedSpacePoints = pfpToSpacePoint.at(iPfp);
+
+      fnSpacePoints += associatedSpacePoints.size();
 
       // std::cout << "We have PFParticle objects! Yep" << std::endl;
-      if (pfparticleVect[iPfp]->IsPrimary())
-        continue;
+      if (! (pfparticleVect[iPfp]->IsPrimary() && (pfparticleVect[iPfp]->PdgCode() == 14 || pfparticleVect[iPfp]->PdgCode() == 12 ))) continue;
       // const int pdg(pParticle->PdgCode());
       // std::cout << "We have Primary Particles! Yep" << std::endl;
 
@@ -501,14 +527,15 @@ void atm::Atmospheric::analyze(art::Event const &evt)
         {
           std::vector<art::Ptr<recob::Hit>> trackHits = TrackToHitsAssoc.at(trk.key());
           if(!insideFV(trk->End())) continue;
-          //int trkidtruth = TruthMatchUtils::TrueParticleIDFromTotalTrueEnergy(clockData, trackHits, true);
-          //const simb::MCParticle *particle = pi_serv->TrackIdToParticle_P(trkidtruth);
+          int trkidtruth = TruthMatchUtils::TrueParticleIDFromTotalTrueEnergy(clockData, trackHits, true);
+          const simb::MCParticle *particle = pi_serv->TrackIdToParticle_P(trkidtruth);
   
 
-          //fDaughterTrackTruePDG.push_back(particle->PdgCode());
+          fDaughterTrackTruePDG.push_back(particle->PdgCode());
           float trackADC = 0;
-          for(const art::Ptr<recob::Hit> &hit : trackHits){
 
+          for(const art::Ptr<recob::Hit> &hit : trackHits){
+            
             trackADC += hit->SummedADC();
 
           }
@@ -519,8 +546,6 @@ void atm::Atmospheric::analyze(art::Event const &evt)
               LongestTrackID = trk.key();
           } 
           
-
-
           std::vector<art::Ptr<anab::ParticleID>> trackPID = TrackToPIDAssoc.at(trk.key());
           std::map<int,float> PDGtoChi2;
 
@@ -587,7 +612,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
           // Cheat Vertex, all track directions based on the true vertex
           if (fCheatVertex)
           {
-            // If the distance from the true primary vertex of the begining of the track is bigger
+            // If the distance from the true primary vertex of the begining of the track is larger
             // than the distance between the true primary vertex of the end of the track --> Flip the track!
             if ((DMInteracPosition.Vect() - DaughterStartPoint).Mag() > (DMInteracPosition.Vect() - DaughterEndPoint).Mag())
               InvertTrack = true;
@@ -595,37 +620,29 @@ void atm::Atmospheric::analyze(art::Event const &evt)
 
           float KE = 0;
 
-          fnCalorimetryPoints = associatedCalo.size()/3;
+          //std::cout << "associatedCalo.size() = " << associatedCalo.size() << std::endl;
 
           for (const art::Ptr<anab::Calorimetry> &cal : associatedCalo)
           {
+            
 
             if (!cal->PlaneID().isValid)
               continue;
-
             int planenum = cal->PlaneID().Plane;
 
             // std::cout << "pid: " << pidout.ParticleIDAlgScores.at(0) << std::endl;
             std::vector<float> temp_dEdx = cal->dEdx();
-
-            if (temp_dEdx.size() == 0)
-              continue;
+           // std::cout<< "temp_dEdx.size() = "<< temp_dEdx.size() << std::endl;
 
             if (InvertTrack)
             {
               //std::cout << "temp_dEdx.at(0)= " << temp_dEdx.at(0) << std::endl;
-
               std::reverse(temp_dEdx.begin(), temp_dEdx.end());
-
               //std::cout << "temp_dEdx.at(final)= " << temp_dEdx.at(temp_dEdx.size() - 1) << std::endl;
             }
 
-            
-      
-
             if (planenum == 0)
             {
-
               fDaughterTrackdEdx_Plane0.push_back(temp_dEdx);
               fDaughterTrackResidualRange_Plane0.push_back(cal->ResidualRange());
               fDaughterKE_Plane0.push_back(cal->KineticEnergy());
@@ -646,12 +663,13 @@ void atm::Atmospheric::analyze(art::Event const &evt)
               KE = cal->KineticEnergy();
             }
 
-            temp_dEdx.clear();
+            
 
             double PIDA =  PIDACalc(cal->ResidualRange(), temp_dEdx);
-            if(PIDA != -999) fPIDA.push_back(PIDA); 
+         //   std::cout << "PIDA = " << PIDA << std::endl;
+            fPIDA.push_back(PIDA); 
             if(trk.key() == LongestTrackID) PIDALongestTrack = PIDA;
-
+            temp_dEdx.clear();
           } // Calo
 
         TVector3 TrackDirection(trk->StartDirection().X(), trk->StartDirection().Y(), trk->StartDirection().Z());
@@ -661,12 +679,17 @@ void atm::Atmospheric::analyze(art::Event const &evt)
           TrackDirection = -TrackDirection;
         }
 
-        if(PDGtoMass[minChi2PDG] == 13 || PDGtoMass[minChi2PDG] == 211 ){
+        //std::cout << "PDGtoMass[minChi2PDG] = " << PDGtoMass[minChi2PDG] << std::endl;
+        //std::cout<< "minChi2PDG = " << minChi2PDG << std::endl;
+
+        if(minChi2PDG == 13 || minChi2PDG == 211 ){
           TotalMomentumRecoRange += trkm.GetTrackMomentum(trk->Length(), 13) * TrackDirection;
+        //  std::cout << "TotalMomentumRecoRange.Mag() = " << TotalMomentumRecoRange.Mag() << std::endl;
         }
 
-        if(PDGtoMass[minChi2PDG] == 2212 || PDGtoMass[minChi2PDG] == 321 ){
+        if(minChi2PDG == 2212 || minChi2PDG == 321 ){
           TotalMomentumRecoRange += trkm.GetTrackMomentum(trk->Length(), 2212) * TrackDirection;
+        //  std::cout << "TotalMomentumRecoRange.Mag() = " << TotalMomentumRecoRange.Mag() << std::endl;
         }
 
           double Pcal = sqrt(KE * KE - PDGtoMass[minChi2PDG] * PDGtoMass[minChi2PDG]);
@@ -708,19 +731,34 @@ void atm::Atmospheric::analyze(art::Event const &evt)
       }
     }
 
-    } // end -- Only  to a true NC neutrino interaction
+ 
 
     //TVector3 z(0,0,1);
+    //std::cout << "TotalMomentumRecoRange.Mag() = " << TotalMomentumRecoRange.Mag() << std::endl; 
     if (TotalMomentumRecoRange.Mag() > 0.0)
     {
     fTotalMomentumP = TotalMomentumRecoRange.Mag();
     fCosThetaDetTotalMom = TotalMomentumRecoRange.Unit().CosTheta();
     fCosPhiDetTotalMom = cos(TotalMomentumRecoRange.Unit().Phi());
-    fCosThetaSunRecoRange = TotalMomentumRecoRange.Unit() * DMMomentum.Vect().Unit();
-    fCosThetaSunRecoCal = TotalMomentumRecoCal.Unit() * DMMomentum.Vect().Unit(); 
+    fCosThetaSunRecoRange = TotalMomentumRecoRange.Unit() * RandomSunPosition;
+    //std::cout << "fCosThetaSunRecoRange =" << fCosThetaSunRecoRange <<std::endl;
+    fCosThetaSunRecoCal = TotalMomentumRecoCal.Unit() * RandomSunPosition; 
+    //std::cout << "fCosThetaSunRecoCal =" << fCosThetaSunRecoCal <<std::endl;
     }
 
-  m_AtmTree->Fill();
+  //Fill the Tree just for a NC event, and if there is any information in the BDT variables
+  if(fCosThetaDetTotalMom != -2 ||
+  fCosPhiDetTotalMom != -2 ||
+  fnTracks != 0 ||
+  fnShowers != 0 ||
+  fnSpacePoints != 0 ||
+  fTotalMomentumP != 0 ||
+  fPIDALongestTrack != 0 ||
+  fHighestTrackSummedADC != 0 ||
+  fLongestTrack != 0) m_AtmTree->Fill();
+
+  m_AllEvents->Fill();
+  
 }
 
 void atm::Atmospheric::beginJob()
@@ -728,10 +766,15 @@ void atm::Atmospheric::beginJob()
 
   art::ServiceHandle<art::TFileService const> tfs;
   m_AtmTree = tfs->make<TTree>("Atm", "AtmosphericAnalysis");
+  m_AllEvents = tfs->make<TTree>("AllEvents", "AllEvents");
 
+  m_AllEvents->Branch("event", &m_event, "event/I");
+  m_AllEvents->Branch("CCNC", &fCCNC);
+
+  m_AtmTree->Branch("CCNC", &fCCNC);
   m_AtmTree->Branch("run", &m_run, "run/I");
   m_AtmTree->Branch("event", &m_event, "event/I");
-  m_AtmTree->Branch("TrackLength", &fLongestTrack);
+  m_AtmTree->Branch("LongestTrack", &fLongestTrack);
   m_AtmTree->Branch("DaughterTrackdEdx_Plane0", &fDaughterTrackdEdx_Plane0);
   m_AtmTree->Branch("DaughterTrackResidualRange_Plane0", &fDaughterTrackResidualRange_Plane0);
   m_AtmTree->Branch("DaughterKE_Plane0", &fDaughterKE_Plane0);
@@ -746,7 +789,6 @@ void atm::Atmospheric::beginJob()
   m_AtmTree->Branch("PIDALongestTrack", &fPIDALongestTrack);
   m_AtmTree->Branch("DaughterTrackTruePDG", &fDaughterTrackTruePDG);
 
-  m_AtmTree->Branch("fnPFParticleShowerDaughters", &fnPFParticleShowerDaughters);
   m_AtmTree->Branch("ShowerID", &fShowerID);
   m_AtmTree->Branch("ShowerDirectionX", &fShowerDirectionX);
   m_AtmTree->Branch("ShowerDirectionY", &fShowerDirectionY);
@@ -766,7 +808,7 @@ void atm::Atmospheric::beginJob()
   m_AtmTree->Branch("nTracks", &fnTracks);
   m_AtmTree->Branch("nShowers", &fnShowers);
   m_AtmTree->Branch("TotalMomentumP", &fTotalMomentumP);
-  m_AtmTree->Branch("nCalorimetryPoints", &fnCalorimetryPoints);
+  m_AtmTree->Branch("nSpacePoints", &fnSpacePoints);
   m_AtmTree->Branch("minChi2value", &fminChi2value);
   m_AtmTree->Branch("minChi2PDG", &fminChi2PDG);
 
@@ -816,9 +858,10 @@ bool atm::Atmospheric::IsVisibleParticle(int Pdg, std::string process)
 
 double atm::Atmospheric::PIDACalc(std::vector<float> ResRangeVect, std::vector<float> dEdxVect){
 
-  double val = -999;
-  if( (ResRangeVect.size() != dEdxVect.size()) || ResRangeVect.size() == 0 )  return val;
-  val = 0;
+  double val = 0;
+  
+  if( (ResRangeVect.size() != dEdxVect.size()) || ResRangeVect.size() < 3 )  return val;
+  
 
   for (size_t i_r = 0; i_r < ResRangeVect.size(); i_r++)
   {
@@ -832,7 +875,7 @@ double atm::Atmospheric::PIDACalc(std::vector<float> ResRangeVect, std::vector<f
 
   if(val > 60){
 
-    val = -999;
+    val = 0;
     return val;
 
   }
