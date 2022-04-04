@@ -156,6 +156,10 @@ private:
   int m_run;   ///<
   int m_event; ///<
   int fnGeantParticles;
+
+  std::vector<int> fNPrimaryDaughters;
+  int fNPrimaries;
+
   std::vector<std::vector<float>> fDaughterTrackdEdx_Plane0;
   std::vector<std::vector<float>> fDaughterTrackdEdx_Plane1;
   std::vector<std::vector<float>> fDaughterTrackdEdx_Plane2;
@@ -278,6 +282,11 @@ void atm::Atmospheric::ResetCounters()
 
   fCCNC.clear();
 
+
+
+  fNPrimaryDaughters.clear();
+  fNPrimaries = 0;
+
   fDaughterTrackdEdx_Plane0.clear();
   fDaughterTrackdEdx_Plane1.clear();
   fDaughterTrackdEdx_Plane2.clear();
@@ -390,10 +399,6 @@ void atm::Atmospheric::analyze(art::Event const &evt)
      nline++;
   }
 
-
-
-
-
   TVector3 vertical(0,1,0);
 
   // std::cout << "  Run: " << m_run << std::endl;
@@ -427,9 +432,6 @@ void atm::Atmospheric::analyze(art::Event const &evt)
   //std::cout << "Number of CC and/or NC interactions: " << fCCNC.size() << std::endl;
   //std::cout << "Nu Interaction (0=CC 1=NC): " << fCCNC[0] << std::endl;
 
-  bool IsNC = false;
-  
-  if(fCCNC[0] == 1) IsNC = true;
   // Truth information (Save geant4 info)
   if (fSaveGeantInfo)
   {
@@ -438,7 +440,6 @@ void atm::Atmospheric::analyze(art::Event const &evt)
     auto const &MCParticleObjs = *MCParticleHandle;
 
     fnGeantParticles = MCParticleObjs.size();
-    if(( fCCNC[0] == 1) ){ // Only  to a true NC neutrino interaction
       for (size_t i = 0; i < MCParticleObjs.size(); i++)
       {
       
@@ -471,7 +472,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
           TotalMomentumTrue += MCParticleObj.Momentum();
         }
       }
-    }
+    
 
     fCosThetaSunTrue = TotalMomentumTrue.Vect().Unit() * RandomSunPosition;
   }
@@ -503,22 +504,30 @@ void atm::Atmospheric::analyze(art::Event const &evt)
 
   const std::vector<art::Ptr<recob::PFParticle>> pfparticleVect = dune_ana::DUNEAnaEventUtils::GetPFParticles(evt, fPFParticleModuleLabel);
 
+  size_t neutrinoID = 99999;
+
   // Block adapted from ConsolidatedPFParticleAnalysisTemplate should work fine!
-  if(( fCCNC[0] == 1) ){ // Only  to a true NC neutrino interaction
     for (size_t iPfp = 0; iPfp < pfparticleVect.size(); iPfp++)
     {
-
-      if (fCCNC[0] == 0) continue; // Only  to a true NC neutrino interaction
 
       const std::vector<art::Ptr<recob::SpacePoint>> &associatedSpacePoints = pfpToSpacePoint.at(iPfp);
 
       fnSpacePoints += associatedSpacePoints.size();
 
-      // std::cout << "We have PFParticle objects! Yep" << std::endl;
-      if (pfparticleVect[iPfp]->IsPrimary())
-        continue;
+      if(!(pfparticleVect[iPfp]->IsPrimary() && (pfparticleVect[iPfp]->PdgCode() == 14 || pfparticleVect[iPfp]->PdgCode() == 12 )) ) continue;
       // const int pdg(pParticle->PdgCode());
       // std::cout << "We have Primary Particles! Yep" << std::endl;
+
+      neutrinoID = pfparticleVect[iPfp]->Self();
+      fNPrimaryDaughters.push_back(pfparticleVect[iPfp]->NumDaughters());
+      fNPrimaries++;
+    }
+
+    if (neutrinoID == 99999) return;
+
+  for (size_t iPfp = 0; iPfp < pfparticleVect.size(); iPfp++){
+
+      if(pfparticleVect[iPfp]->Parent() != neutrinoID) continue;
 
       const std::vector<art::Ptr<recob::Track>> &associatedTracks = pfPartToTrackAssoc.at(iPfp);
 
@@ -715,8 +724,14 @@ void atm::Atmospheric::analyze(art::Event const &evt)
       
     }   // if there is a track
 
+  }
+
+    for (size_t iPfp = 0; iPfp < pfparticleVect.size(); iPfp++)
+    {
       if (fShowerRecoSave)
       {
+
+        if(pfparticleVect[iPfp]->Parent() != neutrinoID) continue;
         // SHOWERS RECO INFO ====================================================================
         const std::vector<art::Ptr<recob::Shower>> &associatedShowers = pfPartToShowerAssoc.at(iPfp);
         fnShowers = associatedShowers.size();
@@ -743,7 +758,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
       }
     }
 
-    } // end -- Only  to a true NC neutrino interaction
+ 
 
     //TVector3 z(0,0,1);
     //std::cout << "TotalMomentumRecoRange.Mag() = " << TotalMomentumRecoRange.Mag() << std::endl; 
@@ -757,10 +772,10 @@ void atm::Atmospheric::analyze(art::Event const &evt)
     fCosThetaSunRecoCal = TotalMomentumRecoCal.Unit() * RandomSunPosition; 
     //std::cout << "fCosThetaSunRecoCal =" << fCosThetaSunRecoCal <<std::endl;
     }
+  
 
   //Fill the Tree just for a NC event, and if there is any information in the BDT variables
-  if(IsNC &&
-  (fCosThetaDetTotalMom != -2 ||
+  if(fCosThetaDetTotalMom != -2 ||
   fCosPhiDetTotalMom != -2 ||
   fnTracks != 0 ||
   fnShowers != 0 ||
@@ -768,7 +783,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
   fTotalMomentumP != 0 ||
   fPIDALongestTrack != 0 ||
   fHighestTrackSummedADC != 0 ||
-  fLongestTrack != 0)) m_AtmTree->Fill();
+  fLongestTrack != 0) m_AtmTree->Fill();
 
   m_AllEvents->Fill();
   
@@ -784,9 +799,13 @@ void atm::Atmospheric::beginJob()
   m_AllEvents->Branch("event", &m_event, "event/I");
   m_AllEvents->Branch("CCNC", &fCCNC);
 
+  m_AtmTree->Branch("CCNC", &fCCNC);
   m_AtmTree->Branch("run", &m_run, "run/I");
   m_AtmTree->Branch("event", &m_event, "event/I");
   m_AtmTree->Branch("LongestTrack", &fLongestTrack);
+
+  m_AtmTree->Branch("fNPrimaryDaughters", &fNPrimaryDaughters);
+  m_AtmTree->Branch("fNPrimaries", &fNPrimaries);
   m_AtmTree->Branch("DaughterTrackdEdx_Plane0", &fDaughterTrackdEdx_Plane0);
   m_AtmTree->Branch("DaughterTrackResidualRange_Plane0", &fDaughterTrackResidualRange_Plane0);
   m_AtmTree->Branch("DaughterKE_Plane0", &fDaughterKE_Plane0);
