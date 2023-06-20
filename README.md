@@ -16,7 +16,7 @@ You should install a local version of dunetpc.
 
 Then, add this repository in the source, a path like
 
-/dune/app/users/$USER/$WORK_DIRECTORY/srcs/dunetpc/dune/AtmosphericAna
+/dune/app/users/$USER/$WORK_DIRECTORY/srcs/dunereco/dunereco/AtmosphericAna
 
 You should also include the new directory in the CMakeLists file.
 
