@@ -1,3 +1,11 @@
+#include "simulationservices_dune.fcl"
+#include "services_dune.fcl"
+
+#include "calorimetry_dune10kt.fcl"
+#include "showeralgorithms.fcl"
+#include "ctphelper.fcl"
+#include "neutrinoenergyrecoalg_dune.fcl"
+
 BEGIN_PROLOG
 
 atmospheric:
@@ -10,10 +18,16 @@ atmospheric:
    ShowerModuleLabel:         "pandoraShower"
    CaloModuleLabel: "pandoracalo"
    PIDModuleLabel: "pandorapid"
-   SpacePointLabel: "pandora"
+   SpacePointModuleLabel: "pandora"
+   HitModuleLabel: "linecluster"
+   CVNModuleLabel: "cvneva"
+   MVAPIDModuleLabel: "pid"
    SaveGeantInfo: "true"
-   CheatVertex:   "true"
+   CheatVertex:   "false"
    ShowerRecoSave: "true"
+   WireModuleLabel:  "caldata"
+   NeutrinoEnergyRecoAlg:       @local::dune10kt_neutrinoenergyrecoalg
+   CalorimetryAlg:          @local::dune10kt_calorimetryalgmc
 
 }
 
