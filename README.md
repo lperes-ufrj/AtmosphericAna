@@ -1,5 +1,5 @@
 # AtmosphericAna
-leoperes@pos.if.ufrj.br
+leoperes@if.ufrj.br
 ===============================================
 
 Module of Atmospheric Neutrino Analysis in DUNE 
