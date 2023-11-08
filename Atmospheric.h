@@ -145,6 +145,7 @@ private:
 
   // Implemented functions
   bool IsVisibleParticle(int PdgCode, std::string process);
+  int IsNeutrinoOrDM(int Pdg, int status_code);
   void ResetCounters();
   void GeoLimits(art::ServiceHandle<geo::Geometry const> &geom, float fFidVolCutX, float fFidVolCutY, float fFidVolCutZ);
   bool insideFV(geo::Point_t const &vertex);
@@ -176,6 +177,10 @@ private:
   bool InvertTrack;
 
   std::vector<int> fPrimaryPDGReco;
+  std::vector<int> fMCPartGenPDG;
+  std::vector<int> fMCPartGenStatusCode;
+  std::vector<std::vector<double>>  fMCPartGenMomentum;
+  std::vector<std::vector<double>>  fMCPartGenEndMomentum;
   std::vector<std::vector<double>> fPrimaryRecoVertex;
   std::vector<double> fTotalMomRecoRangeUnitVect;
   std::vector<double> fTotalMomRecoCalVectUnit;
@@ -216,6 +221,18 @@ private:
   float fEventRecoEnergy_numu;
   float fEventRecoEnergy_nue;
 
+
+  //Reco Energy NC stuff
+/*
+  int fRecoMethodUsed_NCEnergy;
+  std::vector<double> fRecoVertex_NCEnergy;
+  std::vector<double> fNuLorentzVector_NCEnergy;
+  std::vector<double> fLepLorentzVector_NCEnergy;
+  std::vector<double> fHadLorentzVector_NCEnergy;
+  int flongestTrackContained_NCEnergy;
+  int ftrackMomMethod_NCEnergy;
+*/
+
   //CVN Variables
   float fCVN_NCScore;
   float fCVN_0protonsProbability;
@@ -246,11 +263,29 @@ private:
   double fDiffCosAngleLongestTrack;
   int fNHits;
 
+  std::vector<std::vector<double>> fTrksMom_AllProtons; // 3 vector momentum
+  std::vector<std::vector<double>> fTrksMom_AllMuons; // 3 vector momentum
+  std::vector<std::vector<double>> fTrksMom_BestFit; // 4vector momentum, last entry is the mass
+  std::vector<std::vector<double>> fTrksMom_MCS;
+
+  double fDiffCosAngleTotalMom_AllMuons;
+  double fTotalMomentumP_AllMuons;
+  double fCosThetaDetTotalMom_AllMuons;
+  double fCosPhiDetTotalMom_AllMuons;
+  std::vector<double>  fTotalMomRecoRangeUnitVect_AllMuons;
+
   double fDiffCosAngleTotalMom_AllProtons;
   double fTotalMomentumP_AllProtons;
   double fCosThetaDetTotalMom_AllProtons;
   double fCosPhiDetTotalMom_AllProtons;
   std::vector<double>  fTotalMomRecoRangeUnitVect_AllProtons;
+
+  double fDiffCosAngleTotalMom_MCS;
+  double fTotalMomentumP_MCS;
+  double fCosThetaDetTotalMom_MCS;
+  double fCosPhiDetTotalMom_MCS;
+  std::vector<double> fTotalMomMCSUnitVect;
+
 
   //MVA bits - Just one for event -> Takes the longest track
   /*
@@ -292,6 +327,7 @@ private:
   std::vector<int> fMCPrimaryNuPDG;
   std::vector<std::vector<double>> fMCInitialPositionNu;
   std::vector<std::vector<double>> fMCNuMomentum;
+   std::vector<std::vector<double>> fMCNuEndMomentum;
   std::vector<int> fMCTrackId;
   std::vector<int> fMCPdgCode;
   std::vector<std::string> fMCProcess;
@@ -319,6 +355,7 @@ private:
   std::string fHitModuleLabel;
   std::string fCVNModuleLabel;
   std::string fMVAPIDModuleLabel;
+  std::string fEnergyRecNCLabel;
   bool fSaveGeantInfo;
   bool fCheatVertex;
   bool fShowerRecoSave;
