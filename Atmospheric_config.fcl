@@ -22,6 +22,7 @@ atmospheric:
    HitModuleLabel: "linecluster"
    CVNModuleLabel: "cvneva"
    MVAPIDModuleLabel: "pid"
+   EnergyRecNCLabel: "energyrecnc"
    SaveGeantInfo: "true"
    CheatVertex:   "false"
    ShowerRecoSave: "true"
