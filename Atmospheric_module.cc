@@ -44,6 +44,7 @@ atm::Atmospheric::Atmospheric(fhicl::ParameterSet const &p)
       fHitModuleLabel(p.get<std::string>("HitModuleLabel")),
       fCVNModuleLabel(p.get<std::string>("CVNModuleLabel")),
       fMVAPIDModuleLabel(p.get<std::string>("MVAPIDModuleLabel")),
+      fEnergyRecNCLabel(p.get<std::string>("EnergyRecNCLabel")),
       fSaveGeantInfo(p.get<bool>("SaveGeantInfo")),
       fCheatVertex(p.get<bool>("CheatVertex")),
       fShowerRecoSave(p.get<bool>("ShowerRecoSave")),
@@ -69,15 +70,25 @@ void atm::Atmospheric::ResetCounters()
   fHighestTrackSummedADC = 0;
   fLongestTrack = 0;
   fHighestShowerSummedADC = 0;
-  fLargeShowerOpenAngle = 0;
-  fLongestShower = 0;
+  fLargeShowerOpenAngle = -1;
+  fLongestShower = -1;
   fCVN_NCScore = -1;
-  fFracTotalChargeLongTrack = 0;
+  fFracTotalChargeLongTrack = -1;
   fAvarageTrackLength = 0;
   fEventRecoEnergy = -1;
-  fEventRecoEnergy_numu = 0;
-  fEventRecoEnergy_nue = 0;
-  
+  fEventRecoEnergy_numu = -1;
+  fEventRecoEnergy_nue = -1;
+
+/*
+  fRecoMethodUsed_NCEnergy = -2;
+  fRecoVertex_NCEnergy.clear();
+  fNuLorentzVector_NCEnergy.clear();
+  fLepLorentzVector_NCEnergy.clear();
+  fHadLorentzVector_NCEnergy.clear();
+  flongestTrackContained_NCEnergy = -2;
+  ftrackMomMethod_NCEnergy = -2;
+*/
+
   fIsNC_CVNPred = false;
 
   fnGeantParticles_Primaries = 0; 
@@ -111,6 +122,18 @@ void atm::Atmospheric::ResetCounters()
   fCosThetaDetTotalMom_AllProtons = -2;
   fCosPhiDetTotalMom_AllProtons = -2; 
   fTotalMomRecoRangeUnitVect_AllProtons.clear();
+
+  fDiffCosAngleTotalMom_AllMuons = -2;
+  fTotalMomentumP_AllMuons  = 0;
+  fCosThetaDetTotalMom_AllMuons = -2;
+  fCosPhiDetTotalMom_AllMuons = -2; 
+  fTotalMomRecoRangeUnitVect_AllMuons.clear();
+
+  fDiffCosAngleTotalMom_MCS = -2;
+  fTotalMomentumP_MCS = 0;
+  fCosThetaDetTotalMom_MCS = -2;
+  fCosPhiDetTotalMom_MCS = -2;
+  fTotalMomMCSUnitVect.clear();
 
   fCCNC.clear();
   fNPrimaryDaughters.clear();
@@ -168,6 +191,16 @@ void atm::Atmospheric::ResetCounters()
   fTotalMomRecoRangeUnitVect.clear();
   fTotalMomRecoCalVectUnit.clear();
 
+  fTrksMom_AllProtons.clear();
+  fTrksMom_AllMuons.clear();
+  fTrksMom_BestFit.clear();
+  fTrksMom_MCS.clear();
+
+  fMCPartGenPDG.clear();
+  fMCPartGenMomentum.clear();
+  fMCPartGenEndMomentum.clear();
+  fMCPartGenStatusCode.clear();
+
   fnGeantParticles = 0;
   fThetaNuLepton.clear();
   fMCNuMomentum.clear();
@@ -207,12 +240,14 @@ void atm::Atmospheric::analyze(art::Event const &evt)
 
   TVector3 TotalMomentumRecoRange;
   TVector3 TotalMomentumRecoRange_AllProtons;
+  TVector3 TotalMomentumRecoRange_AllMuons;
+  TVector3 TotalMomentumMCS;
   TVector3 TotalMomentumRecoCal;
   TVector3 TrueEventDirection;
   TLorentzVector TotalMomentumTrue;
   // Get Geometry
   art::ServiceHandle<geo::Geometry const> geom;
-  GeoLimits(geom, 10, 10, 10);
+  GeoLimits(geom, 10, 10, 10); // Exclude 10cm in each border
 
   // and the clock data for event
    auto const clockdata = art::ServiceHandle<detinfo::DetectorClocksService const>()->DataFor(evt);
@@ -225,7 +260,6 @@ void atm::Atmospheric::analyze(art::Event const &evt)
 
   size_t nplanes = geom->Nplanes();
   std::vector<std::vector<unsigned int>> hits(nplanes);
-
   m_run = evt.run();
   m_event = evt.id().event();
 
@@ -265,10 +299,21 @@ void atm::Atmospheric::analyze(art::Event const &evt)
      
   }
 
+
   std::unique_ptr<dune::EnergyRecoOutput> energyRecoHandle(std::make_unique<dune::EnergyRecoOutput>(fNeutrinoEnergyRecoAlg.CalculateNeutrinoEnergy(evt)));
   fEventRecoEnergy = energyRecoHandle->fNuLorentzVector.E();
+/*
+  art::Handle<dune::EnergyRecoOutput> EnergyNCOutput;
+  evt.getByLabel(fEnergyRecNCLabel, "energyrecnc", EnergyNCOutput);
 
-
+  fRecoMethodUsed_NCEnergy = 	(*EnergyNCOutput).recoMethodUsed;
+  fRecoVertex_NCEnergy = {(*EnergyNCOutput).fRecoVertex.X(), (*EnergyNCOutput).fRecoVertex.Y(), (*EnergyNCOutput).fRecoVertex.Z()}; 
+  fNuLorentzVector_NCEnergy ={(*EnergyNCOutput).fNuLorentzVector.X(),(*EnergyNCOutput).fNuLorentzVector.Y(), (*EnergyNCOutput).fNuLorentzVector.Z(), (*EnergyNCOutput).fNuLorentzVector.E()};
+  fLepLorentzVector_NCEnergy = {(*EnergyNCOutput).fLepLorentzVector.X(),(*EnergyNCOutput).fLepLorentzVector.Y(), (*EnergyNCOutput).fLepLorentzVector.Z(), (*EnergyNCOutput).fLepLorentzVector.E()};
+  fHadLorentzVector_NCEnergy = {(*EnergyNCOutput).fHadLorentzVector.X(),(*EnergyNCOutput).fHadLorentzVector.Y(), (*EnergyNCOutput).fHadLorentzVector.Z(), (*EnergyNCOutput).fHadLorentzVector.E()};
+  flongestTrackContained_NCEnergy = (*EnergyNCOutput).longestTrackContained;
+  ftrackMomMethod_NCEnergy = (*EnergyNCOutput).trackMomMethod;
+*/
   std::map<int,float> PDGtoMass;
   PDGtoMass.insert(std::pair<int,float>(2212, 0.938272));
   PDGtoMass.insert(std::pair<int,float>(211, 0.13957));
@@ -288,15 +333,32 @@ void atm::Atmospheric::analyze(art::Event const &evt)
 
     const simb::MCNeutrino &MCNeutrino = MCTruthObj.GetNeutrino();
     fCCNC.push_back(MCNeutrino.CCNC());
+
+      for (int j=0; j <fnGenParticles; j++ ){
+        simb::MCParticle mc_part = 	MCTruthObj.GetParticle(j);
+        fMCPartGenPDG.push_back(mc_part.PdgCode());
+        fMCPartGenStatusCode.push_back(mc_part.StatusCode());
+  
+        int part_cond = IsNeutrinoOrDM(mc_part.PdgCode(),mc_part.StatusCode());
+        std::vector<double> tmp_mcMomentum = {mc_part.Momentum().X(), mc_part.Momentum().Y(), mc_part.Momentum().Z(), mc_part.Momentum().E()};
+        
+        if(part_cond == 1) fMCPartGenMomentum.push_back(tmp_mcMomentum);
+        if(MCNeutrino.CCNC() == 1 && part_cond == 2) fMCPartGenEndMomentum.push_back(tmp_mcMomentum);
+        
+      }
+
+
     fThetaNuLepton.push_back(MCNeutrino.Theta());
     const simb::MCParticle &nu = MCNeutrino.Nu();
     fMCPrimaryNuPDG.push_back(nu.PdgCode());
-    std::vector<double> tmp_NuMomentum = {nu.Momentum().X(), nu.Momentum().Y(), nu.Momentum().Z()};
+    std::vector<double> tmp_NuMomentum = {nu.Momentum().X(), nu.Momentum().Y(), nu.Momentum().Z(), nu.Momentum().E()};
+    std::vector<double> tmp_NuEndMomentum = {nu.EndMomentum().X(), nu.EndMomentum().Y(), nu.EndMomentum().Z(), nu.EndMomentum().E()};
+    fMCNuEndMomentum.push_back(tmp_NuEndMomentum);
     TrueEventDirection = nu.Momentum().Vect().Unit();
     fMCNuMomentum.push_back(tmp_NuMomentum);
     std::vector<double> tmp_fMCInitialPositionNu = {nu.Vx(), nu.Vy(), nu.Vz()};
     fMCInitialPositionNu.push_back(tmp_fMCInitialPositionNu);
-    fMCCosAzimuthNu =  vertical*nu.Momentum().Vect().Unit() ;
+    fMCCosAzimuthNu =  vertical*nu.Momentum().Vect().Unit();
     fMCnuE = nu.E();
   
   }
@@ -385,6 +447,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
   art::FindManyP<recob::Vertex> pfPartToVertex(pfParticleHandle, evt,fPFParticleModuleLabel);
   art::FindManyP<recob::Hit> ShowerToHitAssoc(showerHandle, evt, fShowerModuleLabel);
   art::FindManyP<recob::SpacePoint> ShowerToSpacePoint(showerHandle, evt, fShowerModuleLabel);
+  art::FindManyP<dune::EnergyRecoOutput> TrackToEnergyNCAssoc(trackHandle, evt, fEnergyRecNCLabel);
  // std::cout << "I'm in the association part, dad! " << std::endl;
    art::FindManyP<anab::MVAPIDResult> fmpidt(trackHandle, evt, fMVAPIDModuleLabel);
    art::FindManyP<anab::MVAPIDResult> fmpids(showerHandle, evt, fMVAPIDModuleLabel);
@@ -394,6 +457,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
   const std::vector<art::Ptr<recob::PFParticle>> pfparticleVect = dune_ana::DUNEAnaEventUtils::GetPFParticles(evt, fPFParticleModuleLabel);
 
   size_t neutrinoID = 99999;
+  bool isInsideFD = false; // flag for fidicial cut in the reconstructed vertex 
  // Double_t VertexXYZ[3] = {};
 
   // Block adapted from ConsolidatedPFParticleAnalysisTemplate should work fine!
@@ -412,11 +476,12 @@ void atm::Atmospheric::analyze(art::Event const &evt)
 
       for (const art::Ptr<recob::Vertex> &vtx : associatedVertex)
       {
-        if(!(vtx->isValid())) continue;
+        if(!(vtx->isValid())) continue; // Valid Vertice
+       
         vtxPos vertex = vtx->position();
-       // vtx->XYZ(VertexXYZ);
-
-        fPrimaryRecoVertex.push_back({vertex.X(),vertex.Y(),vertex.Z()});
+	      if(!insideFV(vertex)) continue; // Fiducial Reco Cut 20 cm away from the border
+        fPrimaryRecoVertex.push_back({vertex.X(),vertex.Y(),vertex.Z()}); // Save vertex position
+        isInsideFD = true;
         fDistVertex = pow(pow((fMCInitialPositionNu.at(0).at(0)-vertex.X()),2)+pow((fMCInitialPositionNu.at(0).at(1)-vertex.Y()),2)+pow((fMCInitialPositionNu.at(0).at(2)-vertex.Z()),2),0.5);
       }
 
@@ -427,7 +492,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
       fNPrimaries++;
     }
 
-    if (neutrinoID == 99999) return;
+    if (neutrinoID == 99999 || !isInsideFD) return; //neutrino candidate and reconstructed inside fiducial cut
 
     fnSpacePoints+=SpacePointVect.size();
 
@@ -454,7 +519,11 @@ void atm::Atmospheric::analyze(art::Event const &evt)
 
       float minChi2value;
       int minChi2PDG;
-      fnTracks+=associatedTracks.size();
+      
+      
+      double trk_P_proton = 0;
+      double trk_P_muon = 0;
+      double trk_MSC = 0;
 
       if (!associatedTracks.empty())
       {
@@ -465,9 +534,16 @@ void atm::Atmospheric::analyze(art::Event const &evt)
         {
           std::vector<art::Ptr<recob::Hit>> trackHits = TrackToHitsAssoc.at(trk.key());
 
-          if(trk->NumberTrajectoryPoints() < 2) continue; 
+          if(trk->NumberTrajectoryPoints() < 3) continue; 
 
           if(!insideFV(trk->End())) continue;
+          if(!insideFV(trk->Start())) continue;
+  
+          trk_P_proton = trkm.GetTrackMomentum(trk->Length(), 2212);
+          trk_P_muon = trkm.GetTrackMomentum(trk->Length(), 13);
+          trk_MSC = trkm.GetMomentumMultiScatterLLHD(trk);
+ 
+ 
          // int trkidtruth = TruthMatchUtils::TrueParticleIDFromTotalTrueEnergy(clockData, trackHits, true);
          // const simb::MCParticle *particle = pi_serv->TrackIdToParticle_P(trkidtruth);
         /* int g4id = TruthMatchUtils::TrueParticleIDFromTotalRecoHits(clockdata, trackHits, 1);
@@ -509,16 +585,30 @@ void atm::Atmospheric::analyze(art::Event const &evt)
           TVector3 TrackDirectionLongestTrack(trk->StartDirection().X(), trk->StartDirection().Y(), trk->StartDirection().Z());
 
           AllLengthTracksSummed += trk->Length();
-          //Variables for the longest track 
 
+          /*
+          const std::vector<art::Ptr<dune::EnergyRecoOutput>> &energyNCfromTracks = TrackToEnergyNCAssoc.at(trk.key());
+
+          for(const art::Ptr<dune::EnergyRecoOutput> &energy_nc : energyNCfromTracks){
+            fRecoMethodUsed_NCEnergy = 	(*energy_nc).recoMethodUsed;
+          fRecoVertex_NCEnergy = {(*energy_nc).fRecoVertex.X(), (*energy_nc).fRecoVertex.Y(), (*energy_nc).fRecoVertex.Z()}; 
+          fNuLorentzVector_NCEnergy ={(*energy_nc).fNuLorentzVector.X(),(*energy_nc).fNuLorentzVector.Y(), (*energy_nc).fNuLorentzVector.Z(), (*energy_nc).fNuLorentzVector.E()};
+          fLepLorentzVector_NCEnergy = {(*energy_nc).fLepLorentzVector.X(),(*energy_nc).fLepLorentzVector.Y(), (*energy_nc).fLepLorentzVector.Z(), (*energy_nc).fLepLorentzVector.E()};
+          fHadLorentzVector_NCEnergy = {(*energy_nc).fHadLorentzVector.X(),(*energy_nc).fHadLorentzVector.Y(), (*energy_nc).fHadLorentzVector.Z(), (*energy_nc).fHadLorentzVector.E()};
+          flongestTrackContained_NCEnergy = (*energy_nc).longestTrackContained;
+          ftrackMomMethod_NCEnergy = (*energy_nc).trackMomMethod;
+          }
+          */
+
+          //Variables for the longest track 
           if(trk->Length() > LongestTrack){
               LongestTrack = trk->Length();
               LongestTrackID = trk.key();
               fDiffCosAngleLongestTrack = TrackDirectionLongestTrack*TrueEventDirection;
               Longest_trk = trk;
 
-                       // std::cout << "I'm accessing the MMVAPID, dad! " << std::endl;
-               /*std::vector<art::Ptr<anab::MVAPIDResult> > pids = fmpidt.at(trk.key());
+              // std::cout << "I'm accessing the MMVAPID, dad! " << std::endl;
+              /*std::vector<art::Ptr<anab::MVAPIDResult> > pids = fmpidt.at(trk.key());
           
               if (pids.at(0).isAvailable()){
                 fRecoTrackMVAEvalRatio = pids.at(0)->evalRatio;
@@ -537,7 +627,7 @@ void atm::Atmospheric::analyze(art::Event const &evt)
                   fRecoTrackMVAProton = mvaOutMap["proton"];
                   fRecoTrackMVAPhoton = mvaOutMap["photon"];
               }
-          }*/
+              }*/
 
           } 
 
@@ -559,9 +649,9 @@ void atm::Atmospheric::analyze(art::Event const &evt)
               // if (AlgScore.fPlaneMask[2] != 1)  continue; //Only collection plane
               if(AlgScore.fAlgName == "Chi2") {
                 //Sum Chi2 hyphotesis all planes 
+               // if(AlgScore.fAssumedPdg == 13) std::cout <<  "AlgScore.fAssumedPdg = " << AlgScore.fAssumedPdg << std::endl;
+               // if(!(AlgScore.fAssumedPdg == 13 || AlgScore.fAssumedPdg == 211 || AlgScore.fAssumedPdg == 2212 || AlgScore.fAssumedPdg == 321)) std::cout << "AlgScore.fAssumedPdg = " << AlgScore.fAssumedPdg << std::endl;
                 PDGtoChi2[AlgScore.fAssumedPdg] = AlgScore.fValue;
-
-
               }
             }
           }
@@ -576,6 +666,9 @@ void atm::Atmospheric::analyze(art::Event const &evt)
               minChi2PDG = it->first;
             }
           }
+          if(minChi2PDG == 9999) continue;
+          fnTracks++;
+
          // std::cout << "min Ch2 hypothesis : " << minChi2PDG << " with " << minChi2value << ". \n";
               fminChi2value.push_back(minChi2value);
               fminChi2PDG.push_back(minChi2PDG);
@@ -604,7 +697,6 @@ void atm::Atmospheric::analyze(art::Event const &evt)
           } // Calo
 
         TVector3 TrackDirection(trk->StartDirection().X(), trk->StartDirection().Y(), trk->StartDirection().Z());
-
         TVector3 DaughterStartPoint(trk->Start().X(), trk->Start().Y(), trk->Start().Z());
         TVector3 DaughterEndPoint(trk->End().X(), trk->End().Y(), trk->End().Z());
 
@@ -627,18 +719,28 @@ void atm::Atmospheric::analyze(art::Event const &evt)
 
         if(trk.key() == LongestTrackID) PIDALongestTrack = PIDAwithFlipMaybe;
 
+
+        fTrksMom_AllProtons.push_back({trk_P_proton*TrackDirection.X(),trk_P_proton*TrackDirection.Y(),trk_P_proton*TrackDirection.Z()});
+        fTrksMom_AllMuons.push_back({trk_P_muon*TrackDirection.X(),trk_P_muon*TrackDirection.Y(),trk_P_muon*TrackDirection.Z()});
+        fTrksMom_MCS.push_back({trk_MSC*TrackDirection.X(),trk_MSC*TrackDirection.Y(),trk_MSC*TrackDirection.Z()});
+        
+
+
         if(minChi2PDG == 13 || minChi2PDG == 211 ){
-          TotalMomentumRecoRange += trkm.GetTrackMomentum(trk->Length(), 13) * TrackDirection;
-        //  std::cout << "TotalMomentumRecoRange.Mag() = " << TotalMomentumRecoRange.Mag() << std::endl;
+          TotalMomentumRecoRange += trk_P_muon * TrackDirection;
+          fTrksMom_BestFit.push_back({trk_P_muon*TrackDirection.X(),trk_P_muon*TrackDirection.Y(),trk_P_muon*TrackDirection.Z(), PDGtoMass[minChi2PDG]});
         }
 
         if(minChi2PDG == 2212 || minChi2PDG == 321 ){
-          TotalMomentumRecoRange += trkm.GetTrackMomentum(trk->Length(), 2212) * TrackDirection;
-        //  std::cout << "TotalMomentumRecoRange.Mag() = " << TotalMomentumRecoRange.Mag() << std::endl;
+          TotalMomentumRecoRange += trk_P_proton * TrackDirection;
+          fTrksMom_BestFit.push_back({trk_P_proton*TrackDirection.X(),trk_P_proton*TrackDirection.Y(),trk_P_proton*TrackDirection.Z(), PDGtoMass[minChi2PDG]});
         }
-          TotalMomentumRecoRange_AllProtons += trkm.GetTrackMomentum(trk->Length(), 2212) * TrackDirection;
-          double Pcal = sqrt((KE + PDGtoMass[minChi2PDG])*(KE + PDGtoMass[minChi2PDG])-PDGtoMass[minChi2PDG] * PDGtoMass[minChi2PDG]);
-          TotalMomentumRecoCal += Pcal * TrackDirection;
+        TotalMomentumRecoRange_AllProtons += trk_P_proton * TrackDirection;
+        TotalMomentumRecoRange_AllMuons += trk_P_muon * TrackDirection;
+        TotalMomentumMCS += trk_MSC * TrackDirection;
+
+        double Pcal = sqrt((KE + PDGtoMass[minChi2PDG])*(KE + PDGtoMass[minChi2PDG])-PDGtoMass[minChi2PDG] * PDGtoMass[minChi2PDG]);
+        TotalMomentumRecoCal += Pcal * TrackDirection;
 
       } // Tracks- loop
 
@@ -690,22 +792,20 @@ void atm::Atmospheric::analyze(art::Event const &evt)
             
             TotalMomentumRecoRange += Showerenergy * showerDirection;
             TotalMomentumRecoRange_AllProtons += Showerenergy * showerDirection;
+            TotalMomentumRecoRange_AllMuons += Showerenergy * showerDirection;
+            TotalMomentumMCS += Showerenergy * showerDirection;
             if (Shower->Length() > fLongestShower) {
               Shower_Longest = Shower;
               fLongestShower = Shower->Length();
             }
             if (Shower->OpenAngle() > fLargeShowerOpenAngle) fLargeShowerOpenAngle = Shower->OpenAngle();
 
-            
             float showerADC = 0;
-
             for(const art::Ptr<recob::Hit> &hit : ShowerHits){
-            
               showerADC+= hit->SummedADC();
-
             }
-            if(showerADC > fHighestShowerSummedADC) fHighestShowerSummedADC = showerADC;
 
+            if(showerADC > fHighestShowerSummedADC) fHighestShowerSummedADC = showerADC;
 
           }
         }
@@ -717,44 +817,51 @@ void atm::Atmospheric::analyze(art::Event const &evt)
     if (TotalMomentumRecoRange.Mag() > 0.0)
     {
 
-    std::unique_ptr<dune::EnergyRecoOutput> energyRecoHandle_numu(std::make_unique<dune::EnergyRecoOutput>(fNeutrinoEnergyRecoAlg.CalculateNeutrinoEnergy(Longest_trk,evt)));
-    fEventRecoEnergy_numu = energyRecoHandle_numu->fNuLorentzVector.E();
+      std::unique_ptr<dune::EnergyRecoOutput> energyRecoHandle_numu(std::make_unique<dune::EnergyRecoOutput>(fNeutrinoEnergyRecoAlg.CalculateNeutrinoEnergy(Longest_trk,evt)));
+      fEventRecoEnergy_numu = energyRecoHandle_numu->fNuLorentzVector.E();
 
-    std::unique_ptr<dune::EnergyRecoOutput> energyRecoHandle_nue(std::make_unique<dune::EnergyRecoOutput>(fNeutrinoEnergyRecoAlg.CalculateNeutrinoEnergy(Shower_Longest,evt)));
-    fEventRecoEnergy_nue = energyRecoHandle_nue->fNuLorentzVector.E();
+      std::unique_ptr<dune::EnergyRecoOutput> energyRecoHandle_nue(std::make_unique<dune::EnergyRecoOutput>(fNeutrinoEnergyRecoAlg.CalculateNeutrinoEnergy(Shower_Longest,evt)));
+      fEventRecoEnergy_nue = energyRecoHandle_nue->fNuLorentzVector.E();
 
+      fHighestTrackSummedADC = HighestTrackSummedADC;
+      fLongestTrack = LongestTrack;
+      fPIDALongestTrack = PIDALongestTrack;
+      fFracTotalChargeLongTrack = HighestTrackSummedADC/TotalHitsADC;
 
-    fHighestTrackSummedADC = HighestTrackSummedADC;
-    fLongestTrack = LongestTrack;
-    fPIDALongestTrack = PIDALongestTrack;
-    fFracTotalChargeLongTrack = HighestTrackSummedADC/TotalHitsADC;
+      fTotalMomentumP = TotalMomentumRecoRange.Mag();
+      fCosThetaDetTotalMom = TotalMomentumRecoRange.Unit().CosTheta();
+      fCosPhiDetTotalMom = cos(TotalMomentumRecoRange.Unit().Phi());
+      fTotalMomRecoRangeUnitVect = {TotalMomentumRecoRange.Unit().X(), TotalMomentumRecoRange.Unit().Y(), TotalMomentumRecoRange.Unit().Z()};
 
-    fTotalMomentumP = TotalMomentumRecoRange.Mag();
-    fCosThetaDetTotalMom = TotalMomentumRecoRange.Unit().CosTheta();
-    fCosPhiDetTotalMom = cos(TotalMomentumRecoRange.Unit().Phi());
-    fTotalMomRecoRangeUnitVect = {TotalMomentumRecoRange.Unit().X(), TotalMomentumRecoRange.Unit().Y(), TotalMomentumRecoRange.Unit().Z()};
+      fTotalMomentumP_AllProtons = TotalMomentumRecoRange_AllProtons.Mag();
+      fCosThetaDetTotalMom_AllProtons = TotalMomentumRecoRange_AllProtons.Unit().CosTheta();
+      fCosPhiDetTotalMom_AllProtons = cos(TotalMomentumRecoRange_AllProtons.Unit().Phi());
+      fTotalMomRecoRangeUnitVect_AllProtons = {TotalMomentumRecoRange_AllProtons.Unit().X(), TotalMomentumRecoRange_AllProtons.Unit().Y(), TotalMomentumRecoRange_AllProtons.Unit().Z()};
 
-    fTotalMomentumP_AllProtons = TotalMomentumRecoRange_AllProtons.Mag();
-    fCosThetaDetTotalMom_AllProtons = TotalMomentumRecoRange_AllProtons.Unit().CosTheta();
-    fCosPhiDetTotalMom_AllProtons = cos(TotalMomentumRecoRange_AllProtons.Unit().Phi());
-    fTotalMomRecoRangeUnitVect_AllProtons = {TotalMomentumRecoRange_AllProtons.Unit().X(), TotalMomentumRecoRange_AllProtons.Unit().Y(), TotalMomentumRecoRange_AllProtons.Unit().Z()};
-    //std::cout << "fTotalMomRecoRangeUnitVect =" << fTotalMomRecoRangeUnitVect <<std::endl;
-    fTotalMomRecoCalVectUnit = {TotalMomentumRecoCal.Unit().X(), TotalMomentumRecoCal.Unit().Y(), TotalMomentumRecoCal.Unit().Z()}; 
-  
-    fDiffCosAngleTotalMom = TotalMomentumRecoRange.Unit()*TrueEventDirection;
+      fTotalMomentumP_AllMuons = TotalMomentumRecoRange_AllMuons.Mag();
+      fCosThetaDetTotalMom_AllMuons = TotalMomentumRecoRange_AllMuons.Unit().CosTheta();
+      fCosPhiDetTotalMom_AllMuons = cos(TotalMomentumRecoRange_AllMuons.Unit().Phi());
+      fTotalMomRecoRangeUnitVect_AllMuons = {TotalMomentumRecoRange_AllMuons.Unit().X(), TotalMomentumRecoRange_AllMuons.Unit().Y(), TotalMomentumRecoRange_AllMuons.Unit().Z()};
 
-    fDiffCosAngleTotalMom_AllProtons = TotalMomentumRecoRange_AllProtons.Unit()*TrueEventDirection; 
+      fTotalMomentumP_MCS = TotalMomentumMCS.Mag();
+      fCosThetaDetTotalMom_MCS = TotalMomentumMCS.Unit().CosTheta();
+      fCosPhiDetTotalMom_MCS = cos(TotalMomentumMCS.Unit().Phi());
+      fTotalMomMCSUnitVect = {TotalMomentumMCS.Unit().X(), TotalMomentumMCS.Unit().Y(), TotalMomentumMCS.Unit().Z()};
 
+      //std::cout << "fTotalMomRecoRangeUnitVect =" << fTotalMomRecoRangeUnitVect <<std::endl;
+      fTotalMomRecoCalVectUnit = {TotalMomentumRecoCal.Unit().X(), TotalMomentumRecoCal.Unit().Y(), TotalMomentumRecoCal.Unit().Z()}; 
 
-    //std::cout << "fTotalMomRecoCalVectUnit =" << fTotalMomRecoCalVectUnit <<std::endl;
+      fDiffCosAngleTotalMom = TotalMomentumRecoRange.Unit()*TrueEventDirection;
+      fDiffCosAngleTotalMom_AllProtons = TotalMomentumRecoRange_AllProtons.Unit()*TrueEventDirection; 
+      fDiffCosAngleTotalMom_AllMuons = TotalMomentumRecoRange_AllMuons.Unit()*TrueEventDirection; 
+      fDiffCosAngleTotalMom_MCS = TotalMomentumMCS.Unit()*TrueEventDirection;
+      //std::cout << "fTotalMomRecoCalVectUnit =" << fTotalMomRecoCalVectUnit <<std::endl;
     }
   
 
   //Fill the Tree just for a NC event, and if there is at least one track per event in the BDT variables
-  if(TotalMomentumRecoRange.Mag() > 0) m_AtmTree->Fill();
+  if(TotalMomentumRecoRange.Mag() > 0 && isInsideFD ) m_AtmTree->Fill();
 
-
-  
 }
 
 //Evaluate the charge deposition in the beggining and at the end of the track
@@ -897,6 +1004,16 @@ void atm::Atmospheric::beginJob()
   m_AtmTree->Branch("TrackEndY", &fTrackEndY);
   m_AtmTree->Branch("TrackEndZ", &fTrackEndZ);
 
+/*
+  m_AtmTree->Branch("RecoMethodUsed_NCEnergy", &fRecoMethodUsed_NCEnergy);
+  m_AtmTree->Branch("RecoVertex_NCEnergy", &fRecoVertex_NCEnergy);
+  m_AtmTree->Branch("NuLorentzVector_NCEnergy", &fNuLorentzVector_NCEnergy);
+  m_AtmTree->Branch("LepLorentzVector_NCEnergy", &fLepLorentzVector_NCEnergy);
+  m_AtmTree->Branch("HadLorentzVector_NCEnergy", &fHadLorentzVector_NCEnergy);
+  m_AtmTree->Branch("longestTrackContained_NCEnergy", &flongestTrackContained_NCEnergy);
+  m_AtmTree->Branch("trackMomMethod_NCEnergy", &ftrackMomMethod_NCEnergy);
+*/
+
   m_AtmTree->Branch("EventRecoEnergy_Charge", &fEventRecoEnergy);
   m_AtmTree->Branch("EventRecoEnergy_numu", &fEventRecoEnergy_numu);
   m_AtmTree->Branch("EventRecoEnergy_nue", &fEventRecoEnergy_nue);
@@ -974,6 +1091,11 @@ void atm::Atmospheric::beginJob()
 
  // m_AtmTree->Branch("SunDirectionFromTrueBDM", &fSunDirectionFromTrueBDM);
  // m_AtmTree->Branch("TruePrimaryBDMVertex", &fPrimaryBDMVertex);
+
+  m_AtmTree->Branch("MCPartGenPDG", &fMCPartGenPDG);
+  m_AtmTree->Branch("MCPartGenMomentum", &fMCPartGenMomentum);
+  m_AtmTree->Branch("MCPartGenEndMomentum", &fMCPartGenEndMomentum);
+  m_AtmTree->Branch("MCPartGenStatusCode", &fMCPartGenStatusCode);
   m_AtmTree->Branch("ThetaNuLepton", &fThetaNuLepton);
   m_AtmTree->Branch("MCPrimaryNuPDG", &fMCPrimaryNuPDG);
   m_AtmTree->Branch("MCNuMomentum", &fMCNuMomentum);
@@ -991,12 +1113,29 @@ void atm::Atmospheric::beginJob()
   m_AtmTree->Branch("TopologyNProton", &fTopologyNProton);
   m_AtmTree->Branch("TotalMomentumTrueMag", &fTotalMomentumTrueMag);
 
+  m_AtmTree->Branch("TrksMom_AllProtons", &fTrksMom_AllProtons);
+  m_AtmTree->Branch("TrksMom_AllMuons", &fTrksMom_AllMuons);
+  m_AtmTree->Branch("TrksMom_BestFit", &fTrksMom_BestFit);
+  m_AtmTree->Branch("TrksMom_MCS", &fTrksMom_MCS);
+  
 
   m_AtmTree->Branch("DiffCosAngleTotalMom_AllProtons", &fDiffCosAngleTotalMom_AllProtons);
   m_AtmTree->Branch("TotalMomentumP_AllProtons", &fTotalMomentumP_AllProtons);
   m_AtmTree->Branch("CosThetaDetTotalMom_AllProtons", &fCosThetaDetTotalMom_AllProtons);
   m_AtmTree->Branch("CosPhiDetTotalMom_AllProtons", &fCosPhiDetTotalMom_AllProtons);
   m_AtmTree->Branch("TotalMomRecoRangeUnitVect_AllProtons", &fTotalMomRecoRangeUnitVect_AllProtons);
+
+  m_AtmTree->Branch("DiffCosAngleTotalMom_AllMuons", &fDiffCosAngleTotalMom_AllMuons);
+  m_AtmTree->Branch("TotalMomentumP_AllMuons", &fTotalMomentumP_AllMuons);
+  m_AtmTree->Branch("CosThetaDetTotalMom_AllMuons", &fCosThetaDetTotalMom_AllMuons);
+  m_AtmTree->Branch("CosPhiDetTotalMom_AllMuons", &fCosPhiDetTotalMom_AllMuons);
+  m_AtmTree->Branch("TotalMomRecoRangeUnitVect_AllMuons", &fTotalMomRecoRangeUnitVect_AllMuons);
+
+  m_AtmTree->Branch("DiffCosAngleTotalMom_MCS", &fDiffCosAngleTotalMom_MCS);
+  m_AtmTree->Branch("TotalMomentumP_MCS", &fTotalMomentumP_MCS);
+  m_AtmTree->Branch("CosThetaDetTotalMom_MCS", &fCosThetaDetTotalMom_MCS);
+  m_AtmTree->Branch("CosPhiDetTotalMom_MCS", &fCosPhiDetTotalMom_MCS);
+  m_AtmTree->Branch("TotalMomMCSUnitVect", &fTotalMomMCSUnitVect);
 
   m_AtmTree->Branch("nGeantParticles_Primaries", &fnGeantParticles_Primaries);
   m_AtmTree->Branch("nGenParticles", &fnGenParticles);
@@ -1013,6 +1152,7 @@ void atm::Atmospheric::beginJob()
   m_AllEvents->Branch("MCPdgCode", &fMCPdgCode);
   m_AllEvents->Branch("MCProcess", &fMCProcess);
   m_AllEvents->Branch("MCMomentum", &fMCMomentum);
+  m_AllEvents->Branch("MCCosAzimuthNu", &fMCCosAzimuthNu);
   m_AllEvents->Branch("MCStartEnergy", &fMCStartEnergy);
   m_AllEvents->Branch("MCKineticEnergy", &fMCKineticEnergy);
   m_AllEvents->Branch("isMCinside", &fisMCinside);
@@ -1041,6 +1181,18 @@ bool atm::Atmospheric::IsVisibleParticle(int Pdg, std::string process)
   }
 
   return condition;
+}
+
+int atm::Atmospheric::IsNeutrinoOrDM(int Pdg, int status_code){
+  Pdg = abs(Pdg);
+  int condition = 0;
+  if (!((Pdg == 12 || Pdg == 14 || Pdg == 16 || Pdg == 2000010000) )) return condition;
+
+  if (status_code == 0)  condition = 1;
+  if (status_code == 1 || status_code == 15)  condition = 2;
+
+  return condition;
+
 }
 
 void atm::Atmospheric::GeoLimits(art::ServiceHandle<geo::Geometry const> &geom, float fFidVolCutX, float fFidVolCutY, float fFidVolCutZ)
